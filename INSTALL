@@ -1,0 +1,4 @@
+At the moment Sitix does not have any dedicated means of installation; if you
+want to install it, you can just build and copy the sitix binary into /usr/bin
+or wherever is suitable (on multiuser systems or systems where you don't have
+root, you may want to set up a local bin folder).

@@ -551,7 +551,8 @@ void rmrf(const char* path) {
 int renderRecursive(const char* fpath, const struct stat* sb, int typeflag, struct FTW* ftwbuf) {
     char* thing = transmuted(siteDir, outputDir, fpath);
     if (typeflag == FTW_D) {
-        mkdir(thing, 0700);
+        mkdir(thing, 0);
+        chmod(thing, 0755);
     }
     else {
         renderFile(fpath, thing);
@@ -578,7 +579,8 @@ int main(int argc, char** argv) {
     }
     printf(INFO "Cleaning output directory\n");
     rmrf(outputDir);
-    mkdir(outputDir, 0700);
+    mkdir(outputDir, 0);
+    chmod(outputDir, 0755);
     printf(INFO "Output directory clean.\n");
     printf(INFO "Rendering project '%s' to '%s'.\n", siteDir, outputDir);
     nftw(siteDir, renderRecursive, 64, 0);
