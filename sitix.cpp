@@ -129,6 +129,22 @@ char* strdupn(const char* thing, size_t length) { // copy length bytes of a stri
 }
 
 
+char* truncatn(const char* thing, size_t n, char stop) { // backwards-truncate the end of a string of known length to the last `stop` character
+    // (so truncatn("hello, world", 12, ',') == " world")
+    // this ALLOCATES MEMORY! That means you have to free the memory!
+    size_t tailLen;
+    for (tailLen = 0; tailLen < n; tailLen ++) {
+        if (thing[n - tailLen - 1] == stop) {
+            break;
+        }
+    }
+    char* ret = (char*)malloc(tailLen + 1);
+    ret[tailLen] = 0;
+    memcpy(ret, thing + (n - tailLen), tailLen);
+    return ret;
+}
+
+
 template <typename N>
 N min(N one, N two) {
     if (one < two) {
@@ -257,14 +273,60 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
     Object* lookup(const char* name) { // lookup variant that works on NAMES
         // returning NULL means no suitable object was found here or at any point down in the tree
         // TODO: nested object lookup
+        size_t nameLength = strlen(name);
+        size_t rootSegLen;
+        for (rootSegLen = 0; rootSegLen < nameLength; rootSegLen ++) {
+            if (name[rootSegLen] == '.') {
+                break;
+            }
+        }
+        char* root = (char*)malloc(rootSegLen + 1);
+        root[rootSegLen] = 0;
+        memcpy(root, name, rootSegLen);
         for (Node* node : children) {
             if (node -> isObject) {
                 Object* candidate = (Object*)node;
-                if (candidate -> namingScheme == Object::NamingScheme::Named && strcmp(candidate -> name, name) == 0) {
-                    return candidate;
+                if (candidate -> namingScheme == Object::NamingScheme::Named && strcmp(candidate -> name, root) == 0) {
+                    ::free(root);
+                    if (rootSegLen == nameLength) {
+                        return candidate;
+                    }
+                    else {
+                        return candidate -> childSearchUp(name + rootSegLen + 1); // the +1 is to consume the '.'
+                    }
                 }
             }
         }
+        ::free(root);
+        return NULL;
+    }
+
+    Object* childSearchUp(const char* name) { // name is expected to be a . separated 
+        size_t nameLen = strlen(name);
+        size_t segLen;
+        for (segLen = 0; segLen < nameLen; segLen ++) {
+            if (name[segLen] == '.') {
+                break;
+            }
+        }
+        char* mSeg = (char*)malloc(segLen + 1);
+        mSeg[segLen] = 0;
+        memcpy(mSeg, name, segLen);
+        for (Node* child : children) {
+            if (child -> isObject) {
+                Object* candidate = (Object*)child;
+                if (candidate -> namingScheme == Object::NamingScheme::Named && strcmp(candidate -> name, mSeg) == 0) {
+                    ::free(mSeg);
+                    if (segLen == nameLen) {
+                        return candidate;
+                    }
+                    else {
+                        return candidate -> childSearchUp(name + segLen + 1); // the +1 is to consume the '.'
+                    }
+                }
+            }
+        }
+        ::free(mSeg);
         return NULL;
     }
 
@@ -273,24 +335,16 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
         return NULL;
     }
 
-    bool replace(Object* obj) { // LEAKS MEMORY BY FAILING TO FREE REPLACED OBJECTS!
-        bool didReplace = false;
-        for (size_t i = 0; i < children.size(); i ++) {
-            if (children[i] -> isObject) {
-                Object* candidate = (Object*)(children[i]);
-                if (candidate -> namingScheme == Object::NamingScheme::Named && strcmp(candidate -> name, obj -> name) == 0) {
-                    children[i] = obj;
-                    obj -> parent = this;
-                    didReplace = true;
-                }
-            }
+    bool replace(const char* name, Object* obj) { // TODO: Verify that this is freeing correctly (it may be leaking memory!)
+        Object* o = lookup(name);
+        if (o != NULL) {
+            Object* oldParent = o -> parent;
+            o -> free();
+            *o = *obj;
+            o -> parent = oldParent;
+            return true;
         }
-        if (!didReplace) {
-            if (parent != NULL) {
-                didReplace = parent -> replace(obj);
-            }
-        }
-        return didReplace;
+        return false;
     }
 
     void debugPrint() {
@@ -367,13 +421,15 @@ struct Dereference : Node { // dereference and render an Object (the [^] operato
 
 
 struct Setter : Node {
-    Object* object;
+    Object* object; // contains a fully local name
+    char* name; // contains a dot-separated relative/global name
 
     void render(int fd, Object* scope, bool dereference) { // doesn't write anything, just swaps in the new object
+        printf("Replacing object named %s with object named %s\n", name, object -> name);
         bool didReplace = false;
-        didReplace |= scope -> replace(object);
+        didReplace |= scope -> replace(name, object);
         if (parent != NULL) {
-            didReplace |= parent -> replace(object);
+            didReplace |= parent -> replace(name, object);
         }
         if (!didReplace) { // if we can't find the object we're supposed to replace, just shove it in the highest applicable point on the tree
             parent -> addChild(object);
@@ -381,7 +437,7 @@ struct Setter : Node {
     }
 
     void free() {
-        // no free tasks for this guy, it only has data borrowed from other peopl
+        ::free(name);
     }
 };
 
@@ -411,7 +467,7 @@ size_t fillObject(const char* from, size_t length, Object* container) { // desig
                     objNameLength ++;
                 }
                 obj -> namingScheme = Object::NamingScheme::Named;
-                obj -> name = strdupn(objName, objNameLength);
+                obj -> name = truncatn(objName, objNameLength, '.');
                 if (tagData[tagDataSize - 1] == '-') {
                     i += fillObject(from + i + 1, 0, obj);
                 }
@@ -424,6 +480,7 @@ size_t fillObject(const char* from, size_t length, Object* container) { // desig
                 Object* collision = container -> lookup(obj -> name);
                 if (collision != NULL) { // this is setting a value rather than declaring a new variable, so we have to instead put in a Setter
                     Setter* setter = new Setter;
+                    setter -> name = strdupn(objName, objNameLength);
                     setter -> object = obj;
                     container -> addChild(setter);
                 }
@@ -562,6 +619,7 @@ int renderRecursive(const char* fpath, const struct stat* sb, int typeflag, stru
 }
 
 int main(int argc, char** argv) {
+    printf("thingy: %s\n", truncatn("aaaa.bbbbb.cccc", 15, '.'));
     printf("\033[1mSitix v0.1 by Tyler Clarke\033[0m\n");
     bool hasSpecificSitedir = false;
     for (int i = 1; i < argc; i ++) {
