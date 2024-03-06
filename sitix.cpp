@@ -96,6 +96,8 @@
     Escaping is done with backslashes.
 */
 
+// TODO: memory management. Set up the destructors to work sanely. Get rid of the stupid Node::free() destructors, those are bad.
+
 
 #include <dirent.h>
 #include <stdio.h>
@@ -108,6 +110,8 @@
 #include <vector>
 #include <stdlib.h>
 #include <ftw.h>
+#include <sys/types.h>
+#include <dirent.h>
 
 
 #define INFO     "\033[32m[  INFO   ]\033[0m "
@@ -141,6 +145,28 @@ char* truncatn(const char* thing, size_t n, char stop) { // backwards-truncate t
     char* ret = (char*)malloc(tailLen + 1);
     ret[tailLen] = 0;
     memcpy(ret, thing + (n - tailLen), tailLen);
+    return ret;
+}
+
+
+bool isNumber(const char* data) {
+    size_t s = strlen(data);
+    for (size_t i = 0; i < s; i ++) {
+        if (data[i] < '0' || data[i] > '9') {
+            return false;
+        }
+    }
+    return true;
+}
+
+
+uint32_t toNumber(const char* data) {
+    uint32_t ret = 0;
+    size_t s = strlen(data);
+    for (size_t i = 0; i < s; i ++) {
+        ret *= 10;
+        ret += data[i] - '0';
+    }
     return ret;
 }
 
@@ -215,12 +241,12 @@ struct PlainText : Node {
     size_t size = 0;
 
     void render(int fd, Object* scope, bool dereference) {
-        if (size == 1 && (data[0] == ' ' || data[0] == '\n')) {
-            return;
-        }
         write(fd, data, size);
     }
 };
+
+
+Object string2object(const char* data, size_t length); // forward-dec
 
 
 struct Object : Node { // Sitix objects contain a list of *nodes*, which can be enumerated (like for array reference), named (for variables), operations, or pure text.
@@ -230,6 +256,7 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
     // Sitix code is aware of the scope caveats at all times.
     std::vector<Node*> children;
     bool isTemplate = false;
+    uint32_t highestEnumerated = 0; // the highest enumerated value in this object
 
     Object() {
         isObject = true;
@@ -259,7 +286,7 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
         children.push_back(child);
     }
 
-    void free() { // destructors are cringe
+    void free() { // this is bad and should be deleted (we need to declare a virtual destructor in Node and set proper C++ destructors everywhere)
         for (Node* child : children) {
             child -> free();
             delete child;
@@ -297,6 +324,61 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
                 }
             }
         }
+        struct stat sb;
+        char* directoryName = transmuted("", siteDir, root);
+        if (stat(directoryName, &sb) == 0 && S_ISDIR(sb.st_mode)) { // if `root` is the name of an accessible directory
+            Object* dirObject = new Object;
+            DIR* directory = opendir(directoryName);
+            struct dirent* entry;
+            while ((entry = readdir(directory)) != NULL) { // LEAKS MEMORY!
+                if (entry -> d_name[0] == '.') { // . and ..
+                    continue;
+                }
+                PlainText* fNameContent = new PlainText;
+                fNameContent -> data = strdup(entry -> d_name);
+                fNameContent -> size = strlen(entry -> d_name);
+                Object* fNameObj = new Object;
+                fNameObj -> namingScheme = Object::NamingScheme::Named;
+                fNameObj -> name = strdup("filename");
+                fNameObj -> addChild(fNameContent);
+                Object* enumerated = new Object;
+
+                char* transmuteName = transmuted("", directoryName, entry -> d_name);
+                int file = open(transmuteName, O_RDONLY);
+                if (file == -1) {
+                    printf(ERROR "Couldn't open %s.\n", transmuteName);
+                    ::free(directoryName);
+                    ::free(transmuteName);
+                    return NULL;
+                }
+                struct stat data;
+                if (stat(transmuteName, &data)) {
+                    printf(ERROR "Can't grab file information for %s.\n", transmuteName);
+                    perror("\tstat");
+                }
+                char* map = (char*)mmap(0, data.st_size, PROT_READ, MAP_SHARED, file, 0);
+                close(file);
+                if (map == MAP_FAILED) {
+                    printf(ERROR "Can't memory map %s for directory-to-array inflation.\n", transmuteName);
+                    perror("\tmmap");
+                    ::free(directoryName);
+                    ::free(transmuteName);
+                    return NULL;
+                }
+                ::free(transmuteName);
+
+                *enumerated = string2object(map, data.st_size);
+                enumerated -> addChild(fNameObj);
+                enumerated -> namingScheme = Object::NamingScheme::Enumerated;
+                enumerated -> number = dirObject -> highestEnumerated;
+                dirObject -> highestEnumerated ++;
+                dirObject -> addChild(enumerated);
+            }
+            closedir(directory);
+            ::free(directoryName);
+            return dirObject;
+        }
+        ::free(directoryName);
         ::free(root);
         return NULL;
     }
@@ -315,7 +397,18 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
         for (Node* child : children) {
             if (child -> isObject) {
                 Object* candidate = (Object*)child;
-                if (candidate -> namingScheme == Object::NamingScheme::Named && strcmp(candidate -> name, mSeg) == 0) {
+                if (isNumber(mSeg)) {
+                    if (candidate -> namingScheme == Object::NamingScheme::Enumerated && toNumber(mSeg) == candidate -> number) {
+                        ::free(mSeg);
+                        if (segLen == nameLen) {
+                            return candidate;
+                        }
+                        else {
+                            return candidate -> childSearchUp(name + segLen + 1);
+                        }
+                    }
+                }
+                else if (candidate -> namingScheme == Object::NamingScheme::Named && strcmp(candidate -> name, mSeg) == 0) {
                     ::free(mSeg);
                     if (segLen == nameLen) {
                         return candidate;
@@ -330,16 +423,11 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
         return NULL;
     }
 
-    Object* lookup(uint32_t index) { // indexed lookup (for arrays)
-        // TODO: implement
-        return NULL;
-    }
-
-    bool replace(const char* name, Object* obj) { // TODO: Verify that this is freeing correctly (it may be leaking memory!)
+    bool replace(const char* name, Object* obj) { // TODO: Free unused memory! At the moment, this IS LEAKING MEMORY!
+        // returns true if the object was replaced, and false if it wasn't
         Object* o = lookup(name);
         if (o != NULL) {
             Object* oldParent = o -> parent;
-            o -> free();
             *o = *obj;
             o -> parent = oldParent;
             return true;
@@ -360,7 +448,38 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
 };
 
 
-Object string2object(const char* data, size_t length); // forward-dec
+struct ForLoop : Node {
+    char* goal; // the name of the object we're going to iterate over
+    char* iteratorName; // the name of the object we're going to create as an iterator when this loop is rendered
+    Object* internalObject; // the object we're going to render at every point in the loop
+
+    void render(int fd, Object* scope, bool dereference) { // the memory management here is truly horrendous.
+        Object* array = scope -> lookup(goal);
+        if (array == NULL) {
+            array = parent -> lookup(goal);
+        }
+        if (array == NULL) {
+            printf(ERROR "Array lookup for %s failed. The output will be malformed.\n", goal);
+            return;
+        }
+        for (size_t i = 0; i < array -> children.size(); i ++) {
+            if (array -> children[i] -> isObject) {
+                Object* object = (Object*)(array -> children[i]);
+                if (object -> namingScheme == Object::NamingScheme::Enumerated) {
+                    uint32_t savedNum = object -> number;
+                    object -> namingScheme = Object::NamingScheme::Named;
+                    object -> name = iteratorName;
+                    if (!internalObject -> replace(iteratorName, object)) {
+                        internalObject -> addChild(object);
+                    }
+                    internalObject -> render(fd, scope, true); // force dereference the internal anonymous object
+                    object -> namingScheme = Object::NamingScheme::Enumerated;
+                    object -> number = savedNum;
+                }
+            }
+        }
+    }
+};
 
 
 struct Include : Node { // adds a file (useful for dynamic templating)
@@ -425,7 +544,6 @@ struct Setter : Node {
     char* name; // contains a dot-separated relative/global name
 
     void render(int fd, Object* scope, bool dereference) { // doesn't write anything, just swaps in the new object
-        printf("Replacing object named %s with object named %s\n", name, object -> name);
         bool didReplace = false;
         didReplace |= scope -> replace(name, object);
         if (parent != NULL) {
@@ -466,8 +584,15 @@ size_t fillObject(const char* from, size_t length, Object* container) { // desig
                 while (tagData[objNameLength] != ' ' && tagData[objNameLength] != '-') {
                     objNameLength ++;
                 }
-                obj -> namingScheme = Object::NamingScheme::Named;
-                obj -> name = truncatn(objName, objNameLength, '.');
+                if (objNameLength == 1 && objName[0] == '+') { // it's enumerated, an array.
+                    obj -> namingScheme = Object::NamingScheme::Enumerated;
+                    obj -> number = container -> highestEnumerated;
+                    container -> highestEnumerated ++;
+                }
+                else {
+                    obj -> namingScheme = Object::NamingScheme::Named;
+                    obj -> name = truncatn(objName, objNameLength, '.');
+                }
                 if (tagData[tagDataSize - 1] == '-') {
                     i += fillObject(from + i + 1, 0, obj);
                 }
@@ -477,7 +602,9 @@ size_t fillObject(const char* from, size_t length, Object* container) { // desig
                     text -> data = tagData + objNameLength + 1;
                     obj -> addChild(text);
                 }
-                Object* collision = container -> lookup(obj -> name);
+                char* lookupName = strdupn(objName, objNameLength); // copy it into a c-string for ease
+                Object* collision = container -> lookup(lookupName); // lookup for the global/relative path rather than the guaranteed local path
+                free(lookupName);
                 if (collision != NULL) { // this is setting a value rather than declaring a new variable, so we have to instead put in a Setter
                     Setter* setter = new Setter;
                     setter -> name = strdupn(objName, objNameLength);
@@ -487,6 +614,22 @@ size_t fillObject(const char* from, size_t length, Object* container) { // desig
                 else {
                     container -> addChild(obj);
                 }
+            }
+            else if (tagOp == 'f') {
+                Object* loopObject = new Object;
+                loopObject -> parent = container;
+                ForLoop* loop = new ForLoop;
+                loop -> internalObject = loopObject;
+                const char* goal = tagData;
+                size_t goalLength;
+                for (goalLength = 0; tagData[goalLength] != ' '; goalLength ++);
+                loop -> goal = strdupn(goal, goalLength);
+
+                const char* iteratorName = tagData + goalLength + 1; // consume the goal section and the whitespace
+                size_t iteratorLen = tagDataSize - goalLength - 1;
+                loop -> iteratorName = strdupn(iteratorName, iteratorLen);
+                i += fillObject(from + i + 1, 0, loopObject);
+                container -> addChild(loop);
             }
             else if (tagOp == '^') {
                 Dereference* d = new Dereference;
@@ -619,7 +762,6 @@ int renderRecursive(const char* fpath, const struct stat* sb, int typeflag, stru
 }
 
 int main(int argc, char** argv) {
-    printf("thingy: %s\n", truncatn("aaaa.bbbbb.cccc", 15, '.'));
     printf("\033[1mSitix v0.1 by Tyler Clarke\033[0m\n");
     bool hasSpecificSitedir = false;
     for (int i = 1; i < argc; i ++) {
