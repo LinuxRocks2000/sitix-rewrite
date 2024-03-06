@@ -71,7 +71,7 @@
 
     [=variable Data]
     [=variable2 Data]
-    [i variable == v2]
+    [i equal variable v2]
         Hello, World
     [/]
 
@@ -79,7 +79,7 @@
 
     [=variable Data]
     [=variable2 OtherData]
-    [i variable != v2]
+    [i nequal variable v2]
         Hello, World
     [/]
 
@@ -87,11 +87,20 @@
     
     [=variable Data]
     [=variable2 OtherData]
-    [i variable == v2]
+    [i equal variable v2]
         They're the same.
     [e]
         They're different.
     [/]
+
+    Configuration can be done at command-line with -c and checked with [i config]. A very real usage is like so:
+
+    [=name Test Site]
+    [i config production]
+        [=name Production Site]
+    [/]
+
+    Where sitix -c production would cause that if gate to resolve.
 
     Escaping is done with backslashes.
 */
@@ -119,8 +128,10 @@
 #define WARNING  "\033[33m[ WARNING ]\033[0m "
 
 
-const char* outputDir = "output"; // global variables are gross but, eh, screw you
+const char* outputDir = "output"; // global variables are gross but some of the c standard library higher-order functions I'm using don't support argument passing
 const char* siteDir = "";
+std::vector<const char*> config;
+bool wasElse = false; // This is a very bad solution. Need to make something better.
 
 
 char* strdupn(const char* thing, size_t length) { // copy length bytes of a string to a new, NULL-terminated C string
@@ -247,6 +258,7 @@ struct PlainText : Node {
 
 
 Object string2object(const char* data, size_t length); // forward-dec
+size_t fillObject(const char*, size_t, Object*);
 
 
 struct Object : Node { // Sitix objects contain a list of *nodes*, which can be enumerated (like for array reference), named (for variables), operations, or pure text.
@@ -299,7 +311,6 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
 
     Object* lookup(const char* name) { // lookup variant that works on NAMES
         // returning NULL means no suitable object was found here or at any point down in the tree
-        // TODO: nested object lookup
         size_t nameLength = strlen(name);
         size_t rootSegLen;
         for (rootSegLen = 0; rootSegLen < nameLength; rootSegLen ++) {
@@ -482,10 +493,34 @@ struct ForLoop : Node {
 };
 
 
+struct Setter : Node {
+    Object* object; // contains a fully local name
+    char* name; // contains a dot-separated relative/global name
+
+    void render(int fd, Object* scope, bool dereference) { // doesn't write anything, just swaps in the new object
+        bool didReplace = false;
+        didReplace |= scope -> replace(name, object);
+        if (parent != NULL) {
+            didReplace |= parent -> replace(name, object);
+        }
+        if (!didReplace) { // if we can't find the object we're supposed to replace, just shove it in the highest applicable point on the tree
+            parent -> addChild(object);
+        }
+    }
+
+    void free() {
+        ::free(name);
+    }
+};
+
+
 struct Include : Node { // adds a file (useful for dynamic templating)
     char* fname;
+    bool spent = false;
 
     void render(int fd, Object* scope, bool dereference) {
+        if (spent) { return; } // ensure that double-loads won't happen
+        spent = true;
         char* transmuteName = transmuted("", siteDir, fname);
         int file = open(transmuteName, O_RDONLY);
         if (file == -1) {
@@ -504,11 +539,14 @@ struct Include : Node { // adds a file (useful for dynamic templating)
             perror("\tmmap");
             return;
         }
-        Object* object = new Object;
-        *object = string2object(map, data.st_size);
-        for (Node* n : object -> children) { // INEFFICIENT method of unpacking the loaded file into the parent context.
-            n -> parent = parent;
-            parent -> addChild(n);
+        if (strncmp(map, "[?]", 3) == 0 || strncmp(map, "[!]", 3) == 0) {
+            fillObject(map + 3, data.st_size - 3, parent); // load the file to our parent, basically replacing us
+        }
+        else {
+            PlainText* p = new PlainText;
+            p -> data = map;
+            p -> size = data.st_size;
+            parent -> addChild(p);
         }
     }
 
@@ -531,27 +569,6 @@ struct Dereference : Node { // dereference and render an Object (the [^] operato
             return;
         }
         found -> render(fd, scope, true);
-    }
-
-    void free() {
-        ::free(name);
-    }
-};
-
-
-struct Setter : Node {
-    Object* object; // contains a fully local name
-    char* name; // contains a dot-separated relative/global name
-
-    void render(int fd, Object* scope, bool dereference) { // doesn't write anything, just swaps in the new object
-        bool didReplace = false;
-        didReplace |= scope -> replace(name, object);
-        if (parent != NULL) {
-            didReplace |= parent -> replace(name, object);
-        }
-        if (!didReplace) { // if we can't find the object we're supposed to replace, just shove it in the highest applicable point on the tree
-            parent -> addChild(object);
-        }
     }
 
     void free() {
@@ -630,6 +647,14 @@ size_t fillObject(const char* from, size_t length, Object* container) { // desig
                 loop -> iteratorName = strdupn(iteratorName, iteratorLen);
                 i += fillObject(from + i + 1, 0, loopObject);
                 container -> addChild(loop);
+            }
+            else if (tagOp == 'i') {
+                char* ifCommand = tagData;
+            }
+            else if (tagOp == 'e') {
+                while (from[i] != ']') {i ++;} // consume at least the closing "]", and anything before it too
+                wasElse = true;
+                break;
             }
             else if (tagOp == '^') {
                 Dereference* d = new Dereference;
@@ -768,6 +793,10 @@ int main(int argc, char** argv) {
         if (strcmp(argv[i], "-o") == 0) {
             i ++;
             outputDir = argv[i];
+        }
+        else if (strcmp(argv[i], "-c") == 0) {
+            i ++;
+            config.push_back(argv[i]);
         }
         else if (!hasSpecificSitedir) {
             hasSpecificSitedir = true;
