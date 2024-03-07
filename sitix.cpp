@@ -622,11 +622,8 @@ struct IfStatement : Node {
 
 struct Include : Node { // adds a file (useful for dynamic templating)
     char* fname;
-    bool spent = false;
 
     void render(int fd, Object* scope, bool dereference) {
-        if (spent) { return; } // ensure that double-loads won't happen
-        spent = true;
         char* transmuteName = transmuted("", siteDir, fname);
         int file = open(transmuteName, O_RDONLY);
         if (file == -1) {
@@ -646,13 +643,21 @@ struct Include : Node { // adds a file (useful for dynamic templating)
             return;
         }
         if (strncmp(map, "[?]", 3) == 0 || strncmp(map, "[!]", 3) == 0) {
-            fillObject(map + 3, data.st_size - 3, parent); // load the file to our parent, basically replacing us
+            Object* obj = new Object;
+            fillObject(map + 3, data.st_size - 3, obj); // load the file to our parent, basically replacing us
+            obj -> render(fd, parent, true);
+            for (Node* thing : obj -> children) {
+                if (thing -> type == Node::Type::OBJECT) { // copy over objects so they can be used (they weren't rendered yet)
+                    Object* candidate = (Object*)thing;
+                    parent -> addChild(candidate);
+                }
+            }
         }
         else {
             PlainText* p = new PlainText;
             p -> data = map;
             p -> size = data.st_size;
-            parent -> addChild(p);
+            p -> render(fd, scope, false);
         }
     }
 };
