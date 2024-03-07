@@ -102,10 +102,16 @@
 
     Where sitix -c production would cause that if gate to resolve.
 
-    Escaping is done with backslashes.
+    Escaping is done with backslashes. Because of the nature of the escape-processing mechanism, you can sanely escape whole tags with just one backslash, like
+
+    \[=test Test]\[^test]
+
+    would yield "[=test Test][^test]" rather than "Test".
+    Backslashes themselves can be escaped with backslashes.
 */
 
 // TODO: memory management. Set up the destructors to work sanely. Get rid of the stupid Node::free() destructors, those are bad.
+// At the moment the program leaks a LOT of memory. like, constantly.
 
 
 #include <dirent.h>
@@ -234,14 +240,19 @@ struct Object; // forward-dec
 
 
 struct Node { // superclass
+    virtual ~Node() {
+
+    }
     Object* parent = NULL; // everything has an Object parent, except the root Object (which will have a NULL parent)
-    bool isObject = false; // it's necessary to specificate from Node to Object in some cases
+    enum Type {
+        OTHER,
+        PLAINTEXT,
+        OBJECT
+    } type = OTHER; // it's necessary to specificate from Node to plaintext, object, etc in some cases.
 
     virtual void render(int fd, Object* scope, bool dereference = false) = 0; // true virtual function
     // scope is a SECONDARY scope. If a lookup fails in the primary scope (the parent), scope lookup will be performed in the secondary scope.
     // dereference causes forced rendering on objects (objects don't render by default unless dereferenced with [^name])
-
-    virtual void free() {}; // optional
 
     virtual void debugPrint() {}; // optional
 };
@@ -250,6 +261,10 @@ struct Node { // superclass
 struct PlainText : Node {
     const char* data = NULL;
     size_t size = 0;
+
+    PlainText() {
+        type = PLAINTEXT;
+    }
 
     void render(int fd, Object* scope, bool dereference) {
         write(fd, data, size);
@@ -271,7 +286,7 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
     uint32_t highestEnumerated = 0; // the highest enumerated value in this object
 
     Object() {
-        isObject = true;
+        type = OBJECT;
     }
 
     union {
@@ -285,6 +300,11 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
     } namingScheme = Virtual;
 
     void render(int fd, Object* scope, bool dereference) { // objects are just delegation agents, they don't contribute anything to the final text.
+        if (namingScheme == NamingScheme::Named) { // when objects are rendered, they replace the other objects of the same name on the scope tree.
+            if (parent != NULL) { // replace operations are ALWAYS on the parent, we can't intrude on someone else's scope
+                parent -> replace(name, this);
+            }
+        }
         if (!dereference) {
             return;
         }
@@ -298,19 +318,10 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
         children.push_back(child);
     }
 
-    void free() { // this is bad and should be deleted (we need to declare a virtual destructor in Node and set proper C++ destructors everywhere)
-        for (Node* child : children) {
-            child -> free();
-            delete child;
-        }
-        if (namingScheme == NamingScheme::Named) {
-            ::free(name);
-        }
-        children.clear();
-    }
-
-    Object* lookup(const char* name) { // lookup variant that works on NAMES
+    Object* lookup(const char* name, Object* nope = NULL) { // lookup variant that works on NAMES
         // returning NULL means no suitable object was found here or at any point down in the tree
+        // if `nope` is non-null, it will be used as a discriminant (it will not be returned)
+        // note that copied objects will be returned; `nope` uses pointer-comparison only.
         size_t nameLength = strlen(name);
         size_t rootSegLen;
         for (rootSegLen = 0; rootSegLen < nameLength; rootSegLen ++) {
@@ -318,12 +329,13 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
                 break;
             }
         }
-        char* root = (char*)malloc(rootSegLen + 1);
-        root[rootSegLen] = 0;
-        memcpy(root, name, rootSegLen);
+        char* root = strdupn(name, rootSegLen);
         for (Node* node : children) {
-            if (node -> isObject) {
+            if (node -> type == Node::Type::OBJECT) {
                 Object* candidate = (Object*)node;
+                if (candidate == nope) {
+                    continue;
+                }
                 if (candidate -> namingScheme == Object::NamingScheme::Named && strcmp(candidate -> name, root) == 0) {
                     ::free(root);
                     if (rootSegLen == nameLength) {
@@ -335,61 +347,84 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
                 }
             }
         }
-        struct stat sb;
-        char* directoryName = transmuted("", siteDir, root);
-        if (stat(directoryName, &sb) == 0 && S_ISDIR(sb.st_mode)) { // if `root` is the name of an accessible directory
-            Object* dirObject = new Object;
-            DIR* directory = opendir(directoryName);
-            struct dirent* entry;
-            while ((entry = readdir(directory)) != NULL) { // LEAKS MEMORY!
-                if (entry -> d_name[0] == '.') { // . and ..
-                    continue;
-                }
-                PlainText* fNameContent = new PlainText;
-                fNameContent -> data = strdup(entry -> d_name);
-                fNameContent -> size = strlen(entry -> d_name);
-                Object* fNameObj = new Object;
-                fNameObj -> namingScheme = Object::NamingScheme::Named;
-                fNameObj -> name = strdup("filename");
-                fNameObj -> addChild(fNameContent);
-                Object* enumerated = new Object;
+        if (parent == NULL) { // if we ARE the parent
+            // directory unpacks are on the root scope, see
+            struct stat sb;
+            char* directoryName = transmuted("", siteDir, root);
+            if (stat(directoryName, &sb) == 0 && S_ISDIR(sb.st_mode)) { // if `root` is the name of an accessible directory
+                Object* dirObject = new Object;
+                DIR* directory = opendir(directoryName);
+                struct dirent* entry;
+                while ((entry = readdir(directory)) != NULL) { // LEAKS MEMORY!
+                    if (entry -> d_name[0] == '.') { // . and ..
+                        continue;
+                    }
+                    PlainText* fNameContent = new PlainText;
+                    fNameContent -> data = strdup(entry -> d_name);
+                    fNameContent -> size = strlen(entry -> d_name);
+                    Object* fNameObj = new Object;
+                    fNameObj -> namingScheme = Object::NamingScheme::Named;
+                    fNameObj -> name = strdup("filename");
+                    fNameObj -> addChild(fNameContent);
 
-                char* transmuteName = transmuted("", directoryName, entry -> d_name);
-                int file = open(transmuteName, O_RDONLY);
-                if (file == -1) {
-                    printf(ERROR "Couldn't open %s.\n", transmuteName);
-                    ::free(directoryName);
+                    char* transmuteName = transmuted("", directoryName, entry -> d_name);
+                    int file = open(transmuteName, O_RDONLY);
+                    if (file == -1) {
+                        printf(ERROR "Couldn't open %s.\n", transmuteName);
+                        ::free(directoryName);
+                        ::free(transmuteName);
+                        return NULL;
+                    }
+                    struct stat data;
+                    if (stat(transmuteName, &data)) {
+                        printf(ERROR "Can't grab file information for %s.\n", transmuteName);
+                        perror("\tstat");
+                    }
+                    char* map = (char*)mmap(0, data.st_size, PROT_READ, MAP_SHARED, file, 0);
+                    close(file);
+                    if (map == MAP_FAILED) {
+                        printf(ERROR "Can't memory map %s for directory-to-array inflation.\n", transmuteName);
+                        perror("\tmmap");
+                        ::free(directoryName);
+                        ::free(transmuteName);
+                        return NULL;
+                    }
                     ::free(transmuteName);
-                    return NULL;
-                }
-                struct stat data;
-                if (stat(transmuteName, &data)) {
-                    printf(ERROR "Can't grab file information for %s.\n", transmuteName);
-                    perror("\tstat");
-                }
-                char* map = (char*)mmap(0, data.st_size, PROT_READ, MAP_SHARED, file, 0);
-                close(file);
-                if (map == MAP_FAILED) {
-                    printf(ERROR "Can't memory map %s for directory-to-array inflation.\n", transmuteName);
-                    perror("\tmmap");
-                    ::free(directoryName);
-                    ::free(transmuteName);
-                    return NULL;
-                }
-                ::free(transmuteName);
 
-                *enumerated = string2object(map, data.st_size);
-                enumerated -> addChild(fNameObj);
-                enumerated -> namingScheme = Object::NamingScheme::Enumerated;
-                enumerated -> number = dirObject -> highestEnumerated;
-                dirObject -> highestEnumerated ++;
-                dirObject -> addChild(enumerated);
+                    Object* enumerated = new Object;
+                    enumerated -> namingScheme = Object::NamingScheme::Enumerated;
+                    enumerated -> number = dirObject -> highestEnumerated;
+                    dirObject -> highestEnumerated ++;
+                    if (strncmp(map, "[?]", 3) == 0 || strncmp(map, "[!]", 3) == 0) {
+                        fillObject(map + 3, data.st_size - 3, enumerated);
+                    }
+                    else {
+                        PlainText* content = new PlainText;
+                        content -> data = map;
+                        content -> size = data.st_size;
+                        enumerated -> addChild(content);
+                    }
+                    enumerated -> addChild(fNameObj);
+                    dirObject -> addChild(enumerated);
+                }
+                closedir(directory);
+                dirObject -> namingScheme = Object::NamingScheme::Named;
+                ::free(directoryName);
+                dirObject -> name = root;
+                addChild(dirObject);// DON'T free root because it was passed into the dirObject
+                if (rootSegLen == nameLength) {
+                    return dirObject;
+                }
+                else {
+                    return dirObject -> childSearchUp(name + rootSegLen + 1);
+                }
             }
-            closedir(directory);
             ::free(directoryName);
-            return dirObject;
         }
-        ::free(directoryName);
+        else {
+            ::free(root);
+            return parent -> lookup(name);
+        }
         ::free(root);
         return NULL;
     }
@@ -406,7 +441,7 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
         mSeg[segLen] = 0;
         memcpy(mSeg, name, segLen);
         for (Node* child : children) {
-            if (child -> isObject) {
+            if (child -> type == Node::Type::OBJECT) {
                 Object* candidate = (Object*)child;
                 if (isNumber(mSeg)) {
                     if (candidate -> namingScheme == Object::NamingScheme::Enumerated && toNumber(mSeg) == candidate -> number) {
@@ -436,7 +471,7 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
 
     bool replace(const char* name, Object* obj) { // TODO: Free unused memory! At the moment, this IS LEAKING MEMORY!
         // returns true if the object was replaced, and false if it wasn't
-        Object* o = lookup(name);
+        Object* o = lookup(name, obj);
         if (o != NULL) {
             Object* oldParent = o -> parent;
             *o = *obj;
@@ -473,19 +508,18 @@ struct ForLoop : Node {
             printf(ERROR "Array lookup for %s failed. The output will be malformed.\n", goal);
             return;
         }
+        Object* iterator = new Object;
+        iterator -> namingScheme = Object::NamingScheme::Named;
+        iterator -> name = iteratorName;
         for (size_t i = 0; i < array -> children.size(); i ++) {
-            if (array -> children[i] -> isObject) {
+            if (array -> children[i] -> type == Node::Type::OBJECT) {
                 Object* object = (Object*)(array -> children[i]);
-                if (object -> namingScheme == Object::NamingScheme::Enumerated) {
-                    uint32_t savedNum = object -> number;
-                    object -> namingScheme = Object::NamingScheme::Named;
-                    object -> name = iteratorName;
-                    if (!internalObject -> replace(iteratorName, object)) {
-                        internalObject -> addChild(object);
+                if (object -> namingScheme == Object::NamingScheme::Enumerated) { // ForLoop only checks over enumerated things
+                    iterator -> children = object -> children;
+                    if (!internalObject -> replace(iteratorName, iterator)) {
+                        internalObject -> addChild(iterator);
                     }
                     internalObject -> render(fd, scope, true); // force dereference the internal anonymous object
-                    object -> namingScheme = Object::NamingScheme::Enumerated;
-                    object -> number = savedNum;
                 }
             }
         }
@@ -493,23 +527,95 @@ struct ForLoop : Node {
 };
 
 
-struct Setter : Node {
-    Object* object; // contains a fully local name
-    char* name; // contains a dot-separated relative/global name
+struct IfStatement : Node {
+    enum Mode {
+        Config,
+        Equality,
+        Existence
+    } mode;
+    union {
+        char* configName;
+        struct { // for equality mode
+            char* oneName;
+            char* twoName;
+        };
+        char* exName;
+    };
 
-    void render(int fd, Object* scope, bool dereference) { // doesn't write anything, just swaps in the new object
-        bool didReplace = false;
-        didReplace |= scope -> replace(name, object);
-        if (parent != NULL) {
-            didReplace |= parent -> replace(name, object);
-        }
-        if (!didReplace) { // if we can't find the object we're supposed to replace, just shove it in the highest applicable point on the tree
-            parent -> addChild(object);
-        }
-    }
+    Object* mainObject;
+    Object* elseObject;
+    bool hasElse = false;
 
-    void free() {
-        ::free(name);
+    void render(int fd, Object* scope, bool dereference) {
+        bool is = false;
+        if (mode == Mode::Config) {
+            for (const char* configItem : config) {
+                if (strcmp(configItem, configName) == 0) {
+                    is = true;
+                    break;
+                }
+            }
+        }
+        else if (mode == Mode::Equality) {
+            Object* one = scope -> lookup(oneName);
+            if (one == NULL) {
+                one = parent -> lookup(oneName);
+            }
+            if (one == NULL) {
+                printf(ERROR "Can't find %s for an if statement. The output will be malformed.\n", oneName);
+                return;
+            }
+            Object* two = scope -> lookup(twoName);
+            if (two == NULL) {
+                two = parent -> lookup(twoName);
+            }
+            if (two == NULL) {
+                printf(ERROR "Can't find %s for an if statement. The output will be malformed.\n", twoName);
+                return;
+            }
+            if (one == two) { // if the pointers are the same
+                is = true;
+            }
+            else if (one -> children.size() == two -> children.size()) {
+                bool was = true;
+                for (size_t i = 0; i < one -> children.size(); i ++) {
+                    if (one -> children[i] -> type != two -> children[i] -> type) {
+                        was = false;
+                        break;
+                    }
+                    if (one -> children[i] -> type == Node::Type::PLAINTEXT) {
+                        PlainText* tOne = (PlainText*)(one -> children[i]);
+                        PlainText* tTwo = (PlainText*)(two -> children[i]);
+                        if (tOne -> size != tTwo -> size) {
+                            was = false;
+                            break;
+                        }
+                        if (strncmp(tOne -> data, tTwo -> data, tOne -> size) != 0) {
+                            was = false;
+                            break;
+                        }
+                    }
+                }
+                if (was) {
+                    is = true;
+                }
+            }
+        }
+        else if (mode == Mode::Existence) {
+            Object* o = scope -> lookup(exName);
+            if (o == NULL) {
+                o = parent -> lookup(exName);
+            }
+            if (o != NULL) {
+                is = true;
+            }
+        }
+        if (is) {
+            mainObject -> render(fd, scope, true);
+        }
+        else if (hasElse) {
+            elseObject -> render(fd, scope, true);
+        }
     }
 };
 
@@ -549,10 +655,6 @@ struct Include : Node { // adds a file (useful for dynamic templating)
             parent -> addChild(p);
         }
     }
-
-    void free() {
-        ::free(fname);
-    }
 };
 
 
@@ -560,19 +662,18 @@ struct Dereference : Node { // dereference and render an Object (the [^] operato
     char* name;
 
     void render(int fd, Object* scope, bool dereference) {
-        Object* found = parent -> lookup(name);
+        Object* found = NULL;
+        if (parent != NULL) {
+            found = parent -> lookup(name);
+        }
         if (found == NULL) {
-            found = scope -> lookup(name);
+            scope -> lookup(name);
         }
         if (found == NULL) {
             printf(ERROR "Couldn't find %s! The output \033[1mwill\033[0m be malformed.\n", name);
             return;
         }
-        found -> render(fd, scope, true);
-    }
-
-    void free() {
-        ::free(name);
+        found -> render(fd, parent, true);
     }
 };
 
@@ -581,8 +682,13 @@ size_t fillObject(const char* from, size_t length, Object* container) { // desig
     // if length == 0, just run until we hit a closing tag (and then consume the closing tag, for nesting)
     // returns the amount it consumed
     size_t i = 0;
+    bool escape = false;
     while (i < length || length == 0) { // TODO: backslash escaping (both in tag data and in plaintext data)
-        if (from[i] == '[') {
+        if (from[i] == '\\' && !escape) {
+            escape = true;
+            i ++;
+        }
+        if (from[i] == '[' && !escape) {
             i ++;
             size_t tagStart = i;
             while (from[i] != ']' && (i < length || length == 0)) {
@@ -619,18 +725,7 @@ size_t fillObject(const char* from, size_t length, Object* container) { // desig
                     text -> data = tagData + objNameLength + 1;
                     obj -> addChild(text);
                 }
-                char* lookupName = strdupn(objName, objNameLength); // copy it into a c-string for ease
-                Object* collision = container -> lookup(lookupName); // lookup for the global/relative path rather than the guaranteed local path
-                free(lookupName);
-                if (collision != NULL) { // this is setting a value rather than declaring a new variable, so we have to instead put in a Setter
-                    Setter* setter = new Setter;
-                    setter -> name = strdupn(objName, objNameLength);
-                    setter -> object = obj;
-                    container -> addChild(setter);
-                }
-                else {
-                    container -> addChild(obj);
-                }
+                container -> addChild(obj);
             }
             else if (tagOp == 'f') {
                 Object* loopObject = new Object;
@@ -649,9 +744,48 @@ size_t fillObject(const char* from, size_t length, Object* container) { // desig
                 container -> addChild(loop);
             }
             else if (tagOp == 'i') {
-                char* ifCommand = tagData;
+                IfStatement* ifs = new IfStatement;
+                const char* ifCommand = tagData;
+                size_t ifCommandLength;
+                for (ifCommandLength = 0; ifCommand[ifCommandLength] != ' '; ifCommandLength ++); // TODO: syntax verification
+                // (this could potentially trigger a catastrophic buffer overflow)
+                if (strncmp(ifCommand, "config", ifCommandLength) == 0) {
+                    const char* configName = tagData + ifCommandLength + 1; // the +1 consumes the space
+                    size_t configNameLen = tagDataSize - ifCommandLength - 1;
+                    ifs -> mode = IfStatement::Mode::Config;
+                    ifs -> configName = strdupn(configName, configNameLen);
+                }
+                else if (strncmp(ifCommand, "equals", ifCommandLength) == 0) {
+                    const char* name1 = tagData + ifCommandLength + 1; // the +1 consumes the space
+                    size_t name1len;
+                    for (name1len = 0; name1[name1len] != ' '; name1len ++);
+                    const char* name2 = name1 + name1len + 1; // the +1 consumes the space... of DOOM
+                    size_t name2len = tagDataSize - ifCommandLength - name1len - 2; // the -2 ignores some spaces... of DOOM
+                    ifs -> mode = IfStatement::Mode::Equality;
+                    ifs -> oneName = strdupn(name1, name1len);
+                    ifs -> twoName = strdupn(name2, name2len);
+                }
+                else if (strncmp(ifCommand, "exists", ifCommandLength) == 0) {
+                    const char* exName = tagData + ifCommandLength + 1;
+                    size_t nameLen = tagDataSize - ifCommandLength - 1;
+                    ifs -> mode = IfStatement::Mode::Existence;
+                    ifs -> exName = strdupn(exName, nameLen);
+                }
+                Object* ifObj = new Object;
+                ifObj -> parent = container;
+                i += fillObject(from + i + 1, 0, ifObj);
+                ifs -> mainObject = ifObj;
+                if (wasElse) {
+                    ifs -> hasElse = true;
+                    Object* elseObj = new Object;
+                    elseObj -> parent = container;
+                    i += fillObject(from + i, 0, elseObj);
+                    ifs -> elseObject = elseObj;
+                    wasElse = false;
+                }
+                container -> addChild(ifs);
             }
-            else if (tagOp == 'e') {
+            else if (tagOp == 'e' && length == 0) { // same behavior as /, but it also signals to whoever's calling that it terminated-on-else
                 while (from[i] != ']') {i ++;} // consume at least the closing "]", and anything before it too
                 wasElse = true;
                 break;
@@ -678,12 +812,18 @@ size_t fillObject(const char* from, size_t length, Object* container) { // desig
                 printf(WARNING "Unrecognized tag operation %c! Parsing will continue, but the result may be malformed.\n", tagOp);
             }
         }
-        else if (from[i] == ']') {
+        else if (from[i] == ']' && !escape) {
             printf("Something has gone terribly wrong\n");
         }
         else {
             size_t plainStart = i;
-            while (from[i] != '[' && (i < length || length == 0)) {
+            while ((from[i] != '[' || (from[i - 1] == '\\' && from[i - 2] != '\\')) && (i < length || length == 0)) {
+                if (from[i] == '\\') {
+                    if (from[i + 1] == '\\') {
+                        i ++;
+                    }
+                    break;
+                }
                 i ++;
             }
             PlainText* text = new PlainText;
@@ -692,6 +832,7 @@ size_t fillObject(const char* from, size_t length, Object* container) { // desig
             text -> data = from + plainStart;
             container -> addChild(text);
         }
+        escape = false;
         i ++;
     }
     return i + 1; // the +1 consumes whatever byte we closed on
@@ -740,7 +881,8 @@ void renderFile(const char* in, const char* out) {
 
     Object file = string2object(inMap, size);
     if (file.isTemplate) {
-        printf(INFO "%s is a template file, will not be rendered.\n", in);
+        printf(INFO "%s is marked [?], will not be rendered.\n", in);
+        printf("\t If this file should be rendered, replace [?] with [!] in the header.\n");
     }
     else {
         int output = open(out, O_WRONLY | O_CREAT | O_TRUNC, 0666); // rw for anyone, it's not a protected file (this may lead to security vulnerabilities in the future)
@@ -754,7 +896,6 @@ void renderFile(const char* in, const char* out) {
         file.render(output, &file, true);
         close(output);
     }
-    file.free();
     
     close(input);
     munmap(inMap, size);
@@ -773,7 +914,7 @@ void rmrf(const char* path) {
 }
 
 
-int renderRecursive(const char* fpath, const struct stat* sb, int typeflag, struct FTW* ftwbuf) {
+int renderTree(const char* fpath, const struct stat* sb, int typeflag, struct FTW* ftwbuf) {
     char* thing = transmuted(siteDir, outputDir, fpath);
     if (typeflag == FTW_D) {
         mkdir(thing, 0);
@@ -812,7 +953,7 @@ int main(int argc, char** argv) {
     chmod(outputDir, 0755);
     printf(INFO "Output directory clean.\n");
     printf(INFO "Rendering project '%s' to '%s'.\n", siteDir, outputDir);
-    nftw(siteDir, renderRecursive, 64, 0);
+    nftw(siteDir, renderTree, 64, 0);
     printf("\033[1;33mComplete!\033[0m\n");
     return 0;
 }
