@@ -108,10 +108,18 @@
 
     would yield "[=test Test][^test]" rather than "Test".
     Backslashes themselves can be escaped with backslashes.
+
+    NOTE: Escaping inside inline-expressions IS UNDEFINED! It might work, it might crash the program, it might do nothing. If you need to escape text,
+    just waste like five bytes on a full expanded-expression.
+
+    The [@] operator manages fileflags. These are specific to the current file and are boolean; [@on <flag>] turns a flag on and [@off <flag>] turns a flag off.
+    These are file-wide and do NOT respect render-time constraints; they are applied immediately at parse-time. They are file-wide ONLY; if you want the same
+    flags in two files, you must specify them in both files, even if one is including the other. The only currently available flag is minify, enable it with
+    [@on minify] to reduce unnecessary whitespace in your Sitix files.
 */
 
-// TODO: memory management. Set up the destructors to work sanely. Get rid of the stupid Node::free() destructors, those are bad.
-// At the moment the program leaks a LOT of memory. like, constantly.
+// TODO: memory management. Set up sane destructors and USE THEM!
+// At the moment the program leaks a LOT of memory. like, a LOT.
 
 
 #include <dirent.h>
@@ -239,6 +247,11 @@ char* transmuted(const char* from, const char* to, const char* path) { // transm
 struct Object; // forward-dec
 
 
+struct FileFlags {
+    bool minify = false;
+};
+
+
 struct Node { // superclass
     virtual ~Node() {
 
@@ -249,6 +262,8 @@ struct Node { // superclass
         PLAINTEXT,
         OBJECT
     } type = OTHER; // it's necessary to specificate from Node to plaintext, object, etc in some cases.
+
+    FileFlags fileflags;
 
     virtual void render(int fd, Object* scope, bool dereference = false) = 0; // true virtual function
     // scope is a SECONDARY scope. If a lookup fails in the primary scope (the parent), scope lookup will be performed in the secondary scope.
@@ -267,13 +282,31 @@ struct PlainText : Node {
     }
 
     void render(int fd, Object* scope, bool dereference) {
-        write(fd, data, size);
+        if (fileflags.minify) { // TODO: buffering to make this more fasterly
+            bool hadSpace = false;
+            for (size_t i = 0; i < size; i ++) {
+                if (data[i] == ' ' || data[i] == '\t' || data[i] == '\n') {
+                    if (!hadSpace) {
+                        hadSpace = true;
+                        write(fd, " ", 1);
+                    }
+                    continue;
+                }
+                else {
+                    hadSpace = false;
+                }
+                write(fd, &data[i], 1);
+            }
+        }
+        else {
+            write(fd, data, size);
+        }
     }
 };
 
 
 Object string2object(const char* data, size_t length); // forward-dec
-size_t fillObject(const char*, size_t, Object*);
+size_t fillObject(const char*, size_t, Object*, FileFlags*);
 
 
 struct Object : Node { // Sitix objects contain a list of *nodes*, which can be enumerated (like for array reference), named (for variables), operations, or pure text.
@@ -396,7 +429,8 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
                     enumerated -> number = dirObject -> highestEnumerated;
                     dirObject -> highestEnumerated ++;
                     if (strncmp(map, "[?]", 3) == 0 || strncmp(map, "[!]", 3) == 0) {
-                        fillObject(map + 3, data.st_size - 3, enumerated);
+                        FileFlags flags;
+                        fillObject(map + 3, data.st_size - 3, enumerated, &flags);
                     }
                     else {
                         PlainText* content = new PlainText;
@@ -490,6 +524,18 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
         printf("my content: \n\n");
         render(0, NULL, true);
         printf("\n\n");
+    }
+
+    Object* nonvRoot() { // walk up the parent tree until we reach the first non-virtual object
+        if (parent == NULL) { // we're the rootin' tootin' rootiest root in these here hills
+            return this;
+        }
+        if (namingScheme == NamingScheme::Virtual) {
+            return parent -> nonvRoot();
+        }
+        else {
+            return this;
+        }
     }
 };
 
@@ -644,14 +690,17 @@ struct Include : Node { // adds a file (useful for dynamic templating)
         }
         if (strncmp(map, "[?]", 3) == 0 || strncmp(map, "[!]", 3) == 0) {
             Object* obj = new Object;
-            fillObject(map + 3, data.st_size - 3, obj); // load the file to our parent, basically replacing us
-            obj -> render(fd, parent, true);
+            Object* root = parent -> nonvRoot();
+            obj -> parent = root;
+            FileFlags flags;
+            fillObject(map + 3, data.st_size - 3, obj, &flags); // load the file to our parent, basically replacing us
             for (Node* thing : obj -> children) {
                 if (thing -> type == Node::Type::OBJECT) { // copy over objects so they can be used (they weren't rendered yet)
                     Object* candidate = (Object*)thing;
-                    parent -> addChild(candidate);
+                    root -> addChild(candidate);
                 }
             }
+            obj -> render(fd, parent, true); // actually render the file
         }
         else {
             PlainText* p = new PlainText;
@@ -683,7 +732,7 @@ struct Dereference : Node { // dereference and render an Object (the [^] operato
 };
 
 
-size_t fillObject(const char* from, size_t length, Object* container) { // designed to recurse
+size_t fillObject(const char* from, size_t length, Object* container, FileFlags* fileflags) { // designed to recurse
     // if length == 0, just run until we hit a closing tag (and then consume the closing tag, for nesting)
     // returns the amount it consumed
     size_t i = 0;
@@ -722,7 +771,7 @@ size_t fillObject(const char* from, size_t length, Object* container) { // desig
                     obj -> name = truncatn(objName, objNameLength, '.');
                 }
                 if (tagData[tagDataSize - 1] == '-') {
-                    i += fillObject(from + i + 1, 0, obj);
+                    i += fillObject(from + i + 1, 0, obj, fileflags);
                 }
                 else {
                     PlainText* text = new PlainText;
@@ -730,6 +779,7 @@ size_t fillObject(const char* from, size_t length, Object* container) { // desig
                     text -> data = tagData + objNameLength + 1;
                     obj -> addChild(text);
                 }
+                obj -> fileflags = *fileflags;
                 container -> addChild(obj);
             }
             else if (tagOp == 'f') {
@@ -745,7 +795,8 @@ size_t fillObject(const char* from, size_t length, Object* container) { // desig
                 const char* iteratorName = tagData + goalLength + 1; // consume the goal section and the whitespace
                 size_t iteratorLen = tagDataSize - goalLength - 1;
                 loop -> iteratorName = strdupn(iteratorName, iteratorLen);
-                i += fillObject(from + i + 1, 0, loopObject);
+                i += fillObject(from + i + 1, 0, loopObject, fileflags);
+                loop -> fileflags = *fileflags;
                 container -> addChild(loop);
             }
             else if (tagOp == 'i') {
@@ -778,16 +829,17 @@ size_t fillObject(const char* from, size_t length, Object* container) { // desig
                 }
                 Object* ifObj = new Object;
                 ifObj -> parent = container;
-                i += fillObject(from + i + 1, 0, ifObj);
+                i += fillObject(from + i + 1, 0, ifObj, fileflags);
                 ifs -> mainObject = ifObj;
                 if (wasElse) {
                     ifs -> hasElse = true;
                     Object* elseObj = new Object;
                     elseObj -> parent = container;
-                    i += fillObject(from + i, 0, elseObj);
+                    i += fillObject(from + i, 0, elseObj, fileflags);
                     ifs -> elseObject = elseObj;
                     wasElse = false;
                 }
+                ifs -> fileflags = *fileflags;
                 container -> addChild(ifs);
             }
             else if (tagOp == 'e' && length == 0) { // same behavior as /, but it also signals to whoever's calling that it terminated-on-else
@@ -798,6 +850,7 @@ size_t fillObject(const char* from, size_t length, Object* container) { // desig
             else if (tagOp == '^') {
                 Dereference* d = new Dereference;
                 d -> name = strdupn(tagData, tagDataSize);
+                d -> fileflags = *fileflags;
                 container -> addChild(d);
             }
             else if (tagOp == '/' && length == 0) { // if we hit a closing tag while length == 0, it's because there's a closing tag no subroutine consumed.
@@ -811,7 +864,25 @@ size_t fillObject(const char* from, size_t length, Object* container) { // desig
             // 3. Render the object in forced dereference mode
                 Include* i = new Include;
                 i -> fname = strdupn(tagData, tagDataSize);
+                i -> fileflags = *fileflags;
                 container -> addChild(i);
+            }
+            else if (tagOp == '@') {
+                const char* tagRequest = tagData;
+                size_t tagRequestSize;
+                for (tagRequestSize = 0; tagRequest[tagRequestSize] != ' '; tagRequestSize ++);
+                const char* tagTarget = tagData + tagRequestSize + 1;
+                size_t tagTargetSize = tagDataSize - tagRequestSize - 1;
+                if (strncmp(tagRequest, "on", tagRequestSize) == 0) {
+                    if (strncmp(tagTarget, "minify", tagTargetSize) == 0) {
+                        fileflags -> minify = true;
+                    }
+                }
+                else if (strncmp(tagRequest, "off", tagRequestSize) == 0) {
+                    if (strncmp(tagTarget, "minify", tagTargetSize) == 0) {
+                        fileflags -> minify = false;
+                    }
+                }
             }
             else {
                 printf(WARNING "Unrecognized tag operation %c! Parsing will continue, but the result may be malformed.\n", tagOp);
@@ -835,6 +906,7 @@ size_t fillObject(const char* from, size_t length, Object* container) { // desig
             text -> size = i - plainStart;
             i --;
             text -> data = from + plainStart;
+            text -> fileflags = *fileflags;
             container -> addChild(text);
         }
         escape = false;
@@ -844,17 +916,19 @@ size_t fillObject(const char* from, size_t length, Object* container) { // desig
 }
 
 
-Object string2object(const char* data, size_t length) {
+Object string2object(const char* data, size_t length, FileFlags* flags) {
     Object ret;
+    ret.fileflags = *flags;
     if (strncmp(data, "[!]", 3) == 0) { // it's a valid Sitix file
-        fillObject(data + 3, length - 3, &ret);
+        fillObject(data + 3, length - 3, &ret, flags);
     }
     else if (strncmp(data, "[?]", 3) == 0) {
-        fillObject(data + 3, length - 3, &ret);
+        fillObject(data + 3, length - 3, &ret, flags);
         ret.isTemplate = true;
     }
     else {
         PlainText* text = new PlainText;
+        text -> fileflags = *flags;
         text -> data = data;
         text -> size = length;
         ret.addChild(text);
@@ -864,6 +938,7 @@ Object string2object(const char* data, size_t length) {
 
 
 void renderFile(const char* in, const char* out) {
+    FileFlags fileflags;
     printf(INFO "Rendering %s to %s.\n", in, out);
     struct stat buf;
     stat(in, &buf);
@@ -884,7 +959,7 @@ void renderFile(const char* in, const char* out) {
         return;
     }
 
-    Object file = string2object(inMap, size);
+    Object file = string2object(inMap, size, &fileflags);
     if (file.isTemplate) {
         printf(INFO "%s is marked [?], will not be rendered.\n", in);
         printf("\t If this file should be rendered, replace [?] with [!] in the header.\n");
