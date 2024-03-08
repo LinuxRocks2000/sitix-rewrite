@@ -4,5 +4,4 @@ reads, has a saner way of handling includes and such, the list goes on!)
 The old Sitix project may be somewhat functional but is considered closed and unusable by me. The current Sitix project is going into production use ASAP (replacing
 Jekyll and my python scripts on all of my templated websites), which will be very soon; it already has very powerful templating worked out.
 
-TODO: better documentation
-right now you can see the proposed spec in the comments at the top of sitix.cpp. The full spec is not yet implemented.
+Sitix has a website (generated, of course, with Sitix) at https://swaous.asuscomm.com/sitix.

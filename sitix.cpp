@@ -288,7 +288,9 @@ struct PlainText : Node {
                 if (data[i] == ' ' || data[i] == '\t' || data[i] == '\n') {
                     if (!hadSpace) {
                         hadSpace = true;
-                        write(fd, " ", 1);
+                        if (i != 0) { // don't write the first whitespaces in a file, that's dumb
+                            write(fd, " ", 1);
+                        }
                     }
                     continue;
                 }
@@ -806,7 +808,8 @@ size_t fillObject(const char* from, size_t length, Object* container, FileFlags*
                 for (ifCommandLength = 0; ifCommand[ifCommandLength] != ' '; ifCommandLength ++); // TODO: syntax verification
                 // (this could potentially trigger a catastrophic buffer overflow)
                 if (strncmp(ifCommand, "config", ifCommandLength) == 0) {
-                    const char* configName = tagData + ifCommandLength + 1; // the +1 consumes the space
+                    const char* configName = tagData + ifCommandLeng
+right now you can see the proposed spec in the comments at the top of sitix.cpp. The full spec is not yet implemented.th + 1; // the +1 consumes the space
                     size_t configNameLen = tagDataSize - ifCommandLength - 1;
                     ifs -> mode = IfStatement::Mode::Config;
                     ifs -> configName = strdupn(configName, configNameLen);
@@ -1008,7 +1011,7 @@ int renderTree(const char* fpath, const struct stat* sb, int typeflag, struct FT
 }
 
 int main(int argc, char** argv) {
-    printf("\033[1mSitix v0.1 by Tyler Clarke\033[0m\n");
+    printf("\033[1mSitix v1.0 by Tyler Clarke\033[0m\n");
     bool hasSpecificSitedir = false;
     for (int i = 1; i < argc; i ++) {
         if (strcmp(argv[i], "-o") == 0) {
