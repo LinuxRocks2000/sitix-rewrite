@@ -507,7 +507,10 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
 
     bool replace(const char* name, Object* obj) { // TODO: Free unused memory! At the moment, this IS LEAKING MEMORY!
         // returns true if the object was replaced, and false if it wasn't
-        Object* o = lookup(name, obj);
+        Object* o = lookup(name);
+        if (o == obj) { // if the object that would be replaced is us, we don't want to go through with it.
+            return false;
+        }
         if (o != NULL) {
             Object* oldParent = o -> parent;
             *o = *obj;
@@ -808,8 +811,7 @@ size_t fillObject(const char* from, size_t length, Object* container, FileFlags*
                 for (ifCommandLength = 0; ifCommand[ifCommandLength] != ' '; ifCommandLength ++); // TODO: syntax verification
                 // (this could potentially trigger a catastrophic buffer overflow)
                 if (strncmp(ifCommand, "config", ifCommandLength) == 0) {
-                    const char* configName = tagData + ifCommandLeng
-right now you can see the proposed spec in the comments at the top of sitix.cpp. The full spec is not yet implemented.th + 1; // the +1 consumes the space
+                    const char* configName = tagData + ifCommandLength + 1; // the +1 consumes the space
                     size_t configNameLen = tagDataSize - ifCommandLength - 1;
                     ifs -> mode = IfStatement::Mode::Config;
                     ifs -> configName = strdupn(configName, configNameLen);
