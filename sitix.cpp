@@ -158,6 +158,59 @@ char* strdupn(const char* thing, size_t length) { // copy length bytes of a stri
 }
 
 
+char* strip(const char* thing, char trigger) { // clears all instances of a symbol out of a string
+    // this allocates memory! That means you have to free the memory!
+    size_t trigCount = 0;
+    size_t size = strlen(thing);
+    for (size_t i = 0; i < size; i ++) {
+        if (thing[i] == '\\') {
+            trigCount ++;
+        }
+    }
+    char* ret = (char*)malloc(size - trigCount + 1);
+    ret[size - trigCount] = 0;
+    size_t truePos = 0;
+    size_t i = 0;
+    while (i < size - trigCount) {
+        if (thing[truePos] == trigger) {
+            truePos ++;
+            continue;
+        }
+        ret[i] = thing[truePos];
+        i ++;
+        truePos ++;
+    }
+    return ret;
+}
+
+
+char* escapeString(const char* thing, char toEscape) {
+    size_t escapeC = 0;
+    size_t size = strlen(thing);
+    for (size_t i = 0; i < size; i ++) {
+        if (thing[i] == toEscape) {
+            escapeC ++;
+        }
+    }
+    char* ret = (char*)malloc(size + escapeC + 1);
+    ret[size + escapeC] = 0;
+    size_t i = 0;
+    size_t point = 0;
+    while (i < size + escapeC) {
+        if (thing[i] == toEscape) {
+            ret[i] = '\\';
+            point ++;
+            ret[i + point] = thing[i];
+        }
+        else {
+            ret[i + point] = thing[i];
+        }
+        i ++;
+    }
+    return ret;
+}
+
+
 char* truncatn(const char* thing, size_t n, char stop) { // backwards-truncate the end of a string of known length to the last `stop` character
     // (so truncatn("hello, world", 12, ',') == " world")
     // this ALLOCATES MEMORY! That means you have to free the memory!
@@ -257,13 +310,14 @@ struct Node { // superclass
 
     }
     Object* parent = NULL; // everything has an Object parent, except the root Object (which will have a NULL parent)
-    enum Type {
-        OTHER,
-        PLAINTEXT,
-        OBJECT
-    } type = OTHER; // it's necessary to specificate from Node to plaintext, object, etc in some cases.
 
     FileFlags fileflags;
+    enum Type {
+        OTHER = 1,
+        PLAINTEXT = 3,
+        TEXTBLOB = 5,
+        OBJECT = 7
+    } type = OTHER; // it's necessary to specificate from Node to plaintext, object, etc in some cases.
 
     virtual void render(int fd, Object* scope, bool dereference = false) = 0; // true virtual function
     // scope is a SECONDARY scope. If a lookup fails in the primary scope (the parent), scope lookup will be performed in the secondary scope.
@@ -307,6 +361,43 @@ struct PlainText : Node {
 };
 
 
+struct TextBlob : Node { // designed for smaller, heap-allocated text bits that it frees (not suitable for memory maps)
+    char* data = NULL;
+    TextBlob() {
+        type = TEXTBLOB;
+    }
+
+    ~TextBlob() {
+        free(data);
+    }
+
+    void render(int fd, Object* scope, bool dereference) {
+        size_t size = strlen(data);
+        if (fileflags.minify) { // TODO: buffering to make this more fasterly
+            bool hadSpace = false;
+            for (size_t i = 0; i < size; i ++) {
+                if (data[i] == ' ' || data[i] == '\t' || data[i] == '\n') {
+                    if (!hadSpace) {
+                        hadSpace = true;
+                        if (i != 0) { // don't write the first whitespaces in a file, that's dumb
+                            write(fd, " ", 1);
+                        }
+                    }
+                    continue;
+                }
+                else {
+                    hadSpace = false;
+                }
+                write(fd, &data[i], 1);
+            }
+        }
+        else {
+            write(fd, data, size);
+        }
+    }
+};
+
+
 Object string2object(const char* data, size_t length); // forward-dec
 size_t fillObject(const char*, size_t, Object*, FileFlags*);
 
@@ -320,8 +411,49 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
     bool isTemplate = false;
     uint32_t highestEnumerated = 0; // the highest enumerated value in this object
 
+    int* rCount = new int; // when objects render, they replace other objects. All the children, the name, and such are copied over.
+    // When objects are replaced, they're deleted.
+    // Do you see the problem here?
+    // To avoid seggies, we use rCount to stop from deleting the content of objects that exist in multiple locations.
+    // This means we delete the object itself, but leave the shared children and shared naming alone.
+    // rCount is a pointer so it's shared between "crap-copies".
+    // POSSIBLE BUG: appending children to a referenced object might not work correctly!
+
     Object() {
+        *rCount = 1;
         type = OBJECT;
+    }
+
+    void pushedOut() {
+        if (namingScheme == NamingScheme::Named) {
+            printf("MAYBE bumping out %s\n", name);
+        }
+        if (rCount == NULL) {
+            if (namingScheme == NamingScheme::Named) {
+                printf("NOT bumping out %s\n", name);
+            }
+            return;
+        }
+        else{
+            (*rCount) --;
+            if (*rCount != 0) {
+                if (namingScheme == NamingScheme::Named) {
+                    printf("NOT bumping out %s PART 2\n", name);
+                }
+                return;
+            }
+        }
+        if (namingScheme == NamingScheme::Named) {
+            printf("actually bumping out %s\n", name);
+        }
+        if (namingScheme == NamingScheme::Named) {
+            free(name);
+        }
+        free(rCount);
+        rCount = NULL;
+        for (Node* child : children) {
+            delete child;
+        }
     }
 
     union {
@@ -333,6 +465,38 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
         Enumerated, // it has a number assigned by the parent
         Virtual // it's contained inside a logical operation or something similar
     } namingScheme = Virtual;
+
+    ~Object() {
+        pushedOut();
+        /*
+        for (size_t i = 0; i < children.size(); i ++) {
+            Node* child = children[i];
+            if (child == NULL) {
+                printf(ERROR "Null child found. This may cause strange errors.");
+            }
+            else {
+                if (child -> type == Node::Type::OBJECT) {
+                    Object* thing = (Object*)child;
+                    if (*(thing -> rCount) > 0) {
+                        *(thing -> rCount) --;
+                    }
+                    else {
+                        delete child;
+                    }
+                }
+                else {
+                    delete child;
+                }
+            }
+        }
+        if (namingScheme == NamingScheme::Named) {
+            free(name);
+        }
+        if (rCount != NULL) {
+            free(rCount);
+            rCount = NULL;
+        }*/
+    }
 
     void render(int fd, Object* scope, bool dereference) { // objects are just delegation agents, they don't contribute anything to the final text.
         if (namingScheme == NamingScheme::Named) { // when objects are rendered, they replace the other objects of the same name on the scope tree.
@@ -353,6 +517,14 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
         children.push_back(child);
     }
 
+    void dropObject(Object* object) {
+        for (size_t i = 0; i < children.size(); i ++) {
+            if (children[i] == object) {
+                children.erase(children.begin() + i);
+            }
+        }
+    }
+
     Object* lookup(const char* name, Object* nope = NULL) { // lookup variant that works on NAMES
         // returning NULL means no suitable object was found here or at any point down in the tree
         // if `nope` is non-null, it will be used as a discriminant (it will not be returned)
@@ -360,16 +532,16 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
         size_t nameLength = strlen(name);
         size_t rootSegLen;
         for (rootSegLen = 0; rootSegLen < nameLength; rootSegLen ++) {
-            if (name[rootSegLen] == '.') {
+            if (name[rootSegLen] == '.' && name[rootSegLen - 1] != '\\') {
                 break;
             }
         }
-        char* root = strdupn(name, rootSegLen);
+        char* rootBit = strdupn(name, rootSegLen);
+        char* root = strip(rootBit, '\\');
+        free(rootBit);
         for (Node* node : children) {
             if (node -> type == Node::Type::OBJECT) {
                 Object* candidate = (Object*)node;
-                if (candidate -> namingScheme == Object::NamingScheme::Named) {
-                }
                 if (candidate == nope) {
                     break; // do NOT continue, because we need to propagate the illusion that there can only be one instance of an object per scope.
                     // This is necessary because of situations like [=test One][^test][=test Two][^test], because "nope"ing (inside a replace) when the first one is
@@ -377,7 +549,7 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
                     // want to jump out to the next-highest scope when we find an object that is correct, but noped.
                 }
                 if (candidate -> namingScheme == Object::NamingScheme::Named && strcmp(candidate -> name, root) == 0) {
-                    ::free(root);
+                    free(root);
                     if (rootSegLen == nameLength) {
                         return candidate;
                     }
@@ -388,79 +560,113 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
             }
         }
         if (parent == NULL) { // if we ARE the parent
-            // directory unpacks are on the root scope, see
+            // directory unpacks and file unpacks are on the root scope, see
             struct stat sb;
             char* directoryName = transmuted("", siteDir, root);
-            if (stat(directoryName, &sb) == 0 && S_ISDIR(sb.st_mode)) { // if `root` is the name of an accessible directory
-                Object* dirObject = new Object;
-                DIR* directory = opendir(directoryName);
-                struct dirent* entry;
-                while ((entry = readdir(directory)) != NULL) { // LEAKS MEMORY!
-                    if (entry -> d_name[0] == '.') { // . and ..
-                        continue;
+            if (stat(directoryName, &sb) == 0) {
+                if (S_ISDIR(sb.st_mode)) { // if `root` is the name of an accessible directory
+                    Object* dirObject = new Object;
+                    DIR* directory = opendir(directoryName);
+                    struct dirent* entry;
+                    while ((entry = readdir(directory)) != NULL) { // LEAKS MEMORY!
+                        if (entry -> d_name[0] == '.') { // . and ..
+                            continue;
+                        }
+                        char* transmuteNamep1 = transmuted("", root, entry -> d_name);
+                        char* transmuteName = escapeString(transmuteNamep1, '.');
+                        Object* enumerated = new Object;
+                        Object* file = lookup(transmuteName); // guaranteed not to fail
+                        if (file == NULL) {
+                            printf(ERROR "Unpacking lookup for %s in directory-to-array unpacking FAILED! The output will be malformed!\n", transmuteName);
+                            continue;
+                        }
+                        *(file -> rCount) ++; // bump the ref count, see the Object definition above for information on this
+                        *enumerated = *file; // "crap-copy" the actual file over
+                        enumerated -> namingScheme = Object::NamingScheme::Enumerated; // change the structure of the copied object to be an enumerated entry
+                        enumerated -> number = dirObject -> highestEnumerated; // eventually we've got to set up GhostObjects that have different names from the original,
+                        // but forward everything to the original. that would make this code a LOT cleaner and less buggy.
+                        dirObject -> highestEnumerated ++;
+                        dirObject -> addChild(enumerated); // look up the file and add it to this directory object
+                        // the whole scheme is, like, *whoa*
+                        // when I realized how much simpler this could be (no includes, everything is lazy-loaded, etc)
+                        // I was, like,
+                        // *whoa*
+                        // I imagine this is what doing marijuana feels like
+                        // 'cause, yk, it's all connected, *maaaaan*
                     }
-                    PlainText* fNameContent = new PlainText;
-                    fNameContent -> data = strdup(entry -> d_name);
-                    fNameContent -> size = strlen(entry -> d_name);
+                    closedir(directory);
+                    dirObject -> namingScheme = Object::NamingScheme::Named;
+                    ::free(directoryName);
+                    ::free(root);
+                    dirObject -> name = root;
+                    addChild(dirObject);// DON'T free root because it was passed into the dirObject
+                    if (rootSegLen == nameLength) {
+                        return dirObject;
+                    }
+                    else {
+                        return dirObject -> childSearchUp(name + rootSegLen + 1);
+                    }
+                }
+                else if (S_ISREG(sb.st_mode)) {
+                    // construct the "filename" object inside loaded files
+                    // TODO: add a truncated filename object inside the loaded file, which would contain "mod1.html" rather than
+                    // "templates/modules/mod1.html", for instance.
+                    TextBlob* fNameContent = new TextBlob;
+                    fNameContent -> data = directoryName;
                     Object* fNameObj = new Object;
                     fNameObj -> namingScheme = Object::NamingScheme::Named;
                     fNameObj -> name = strdup("filename");
                     fNameObj -> addChild(fNameContent);
 
-                    char* transmuteName = transmuted("", directoryName, entry -> d_name);
-                    int file = open(transmuteName, O_RDONLY);
+                    // memory map and load the actual file
+                    int file = open(directoryName, O_RDONLY);
                     if (file == -1) {
-                        printf(ERROR "Couldn't open %s.\n", transmuteName);
-                        ::free(directoryName);
-                        ::free(transmuteName);
+                        printf(ERROR "Couldn't open %s (%s) for file-to-object unpacking.\n", root, directoryName);
+                        free(directoryName);
+                        free(root);
                         return NULL;
                     }
                     struct stat data;
-                    if (stat(transmuteName, &data)) {
-                        printf(ERROR "Can't grab file information for %s.\n", transmuteName);
+                    if (stat(directoryName, &data)) {
+                        printf(ERROR "Can't grab file information for %s.\n", root);
                         perror("\tstat");
+                        free(directoryName);
+                        free(root);
+                        return NULL;
                     }
                     char* map = (char*)mmap(0, data.st_size, PROT_READ, MAP_SHARED, file, 0);
                     close(file);
                     if (map == MAP_FAILED) {
-                        printf(ERROR "Can't memory map %s for directory-to-array inflation.\n", transmuteName);
+                        printf(ERROR "Can't memory map %s for directory-to-array inflation.\n", root);
                         perror("\tmmap");
-                        ::free(directoryName);
-                        ::free(transmuteName);
+                        free(directoryName);
+                        free(root);
                         return NULL;
                     }
-                    ::free(transmuteName);
 
-                    Object* enumerated = new Object;
-                    enumerated -> namingScheme = Object::NamingScheme::Enumerated;
-                    enumerated -> number = dirObject -> highestEnumerated;
-                    dirObject -> highestEnumerated ++;
+                    // put together the actual file object, store it on global, and return it
+                    Object* fileObj = new Object;
+                    fileObj -> addChild(fNameObj); // add the filename to the object
+                    fileObj -> namingScheme = Object::NamingScheme::Enumerated;
+                    fileObj -> name = directoryName; // reference name of the object, so it can be quickly looked up later without another slow cold-load
                     if (strncmp(map, "[?]", 3) == 0 || strncmp(map, "[!]", 3) == 0) {
                         FileFlags flags;
-                        fillObject(map + 3, data.st_size - 3, enumerated, &flags);
+                        fillObject(map + 3, data.st_size - 3, fileObj, &flags);
                     }
                     else {
                         PlainText* content = new PlainText;
                         content -> data = map;
                         content -> size = data.st_size;
-                        enumerated -> addChild(content);
+                        fileObj -> addChild(content);
                     }
-                    enumerated -> addChild(fNameObj);
-                    dirObject -> addChild(enumerated);
-                }
-                closedir(directory);
-                dirObject -> namingScheme = Object::NamingScheme::Named;
-                ::free(directoryName);
-                dirObject -> name = root;
-                addChild(dirObject);// DON'T free root because it was passed into the dirObject
-                if (rootSegLen == nameLength) {
-                    return dirObject;
-                }
-                else {
-                    return dirObject -> childSearchUp(name + rootSegLen + 1);
+                    addChild(fileObj); // since we're the global scope, we should add the file to us.
+                    // the goal is to create an illusion that the entire directory structure is a cohesive part of the object tree
+                    // and then sorta just load files when they ask us to
+                    free(root);
+                    return fileObj;
                 }
             }
-            ::free(directoryName);
+            free(directoryName);
         }
         else {
             ::free(root);
@@ -474,7 +680,7 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
         size_t nameLen = strlen(name);
         size_t segLen;
         for (segLen = 0; segLen < nameLen; segLen ++) {
-            if (name[segLen] == '.') {
+            if (name[segLen] == '.' && name[segLen - 1] != '\\') {
                 break;
             }
         }
@@ -510,13 +716,15 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
         return NULL;
     }
 
-    bool replace(const char* name, Object* obj) { // TODO: Free unused memory! At the moment, this IS LEAKING MEMORY!
+    bool replace(const char* name, Object* obj) {
         // returns true if the object was replaced, and false if it wasn't
         Object* o = lookup(name, obj); // enable excluded-lookup
         if (o == obj) { // if the object that would be replaced is us, we don't want to go through with it.
             return false;
         }
         if (o != NULL) {
+            *(obj -> rCount) ++;
+            o -> pushedOut();
             Object* oldParent = o -> parent;
             *o = *obj;
             o -> parent = oldParent;
@@ -555,6 +763,12 @@ struct ForLoop : Node {
     char* iteratorName; // the name of the object we're going to create as an iterator when this loop is rendered
     Object* internalObject; // the object we're going to render at every point in the loop
 
+    ~ForLoop() {
+        delete internalObject; // it was virtual. it can't possibly have been referenced. so let's just get rid of it.
+        free(goal); // they will not be needed *ominous grin*
+        free(iteratorName);
+    }
+
     void render(int fd, Object* scope, bool dereference) { // the memory management here is truly horrendous.
         Object* array = scope -> lookup(goal);
         if (array == NULL) {
@@ -565,20 +779,21 @@ struct ForLoop : Node {
             return;
         }
         Object* iterator = new Object;
-        iterator -> namingScheme = Object::NamingScheme::Named;
-        iterator -> name = iteratorName;
+        internalObject -> addChild(iterator);
         for (size_t i = 0; i < array -> children.size(); i ++) {
             if (array -> children[i] -> type == Node::Type::OBJECT) {
                 Object* object = (Object*)(array -> children[i]);
                 if (object -> namingScheme == Object::NamingScheme::Enumerated) { // ForLoop only checks over enumerated things
-                    iterator -> children = object -> children;
-                    if (!internalObject -> replace(iteratorName, iterator)) {
-                        internalObject -> addChild(iterator);
-                    }
+                    *iterator = *object;
+                    *(object -> rCount) ++; // "crap-copy"
+                    iterator -> namingScheme = Object::NamingScheme::Named;
+                    iterator -> name = iteratorName;
                     internalObject -> render(fd, scope, true); // force dereference the internal anonymous object
                 }
             }
         }
+        internalObject -> dropObject(iterator);
+        delete iterator;
     }
 };
 
@@ -601,6 +816,25 @@ struct IfStatement : Node {
     Object* mainObject;
     Object* elseObject;
     bool hasElse = false;
+
+    ~IfStatement() {
+        delete mainObject; // can't have been referenced, 'twas virtual
+        if (hasElse) {
+            delete elseObject; // ditto
+        }
+        switch (mode) {
+            case Config:
+                free(configName);
+                break;
+            case Equality:
+                free(oneName);
+                free(twoName);
+                break;
+            case Existence:
+                free(exName);
+                break;
+        };
+    }
 
     void render(int fd, Object* scope, bool dereference) {
         bool is = false;
@@ -651,6 +885,14 @@ struct IfStatement : Node {
                             break;
                         }
                     }
+                    if (one -> children[i] -> type == Node::Type::TEXTBLOB) {
+                        TextBlob* tOne = (TextBlob*)(one -> children[i]);
+                        TextBlob* tTwo = (TextBlob*)(two -> children[i]);
+                        if (strcmp(tOne -> data, tTwo -> data) != 0) {
+                            was = false;
+                            break;
+                        }
+                    }
                 }
                 if (was) {
                     is = true;
@@ -676,54 +918,12 @@ struct IfStatement : Node {
 };
 
 
-struct Include : Node { // adds a file (useful for dynamic templating)
-    char* fname;
-
-    void render(int fd, Object* scope, bool dereference) {
-        char* transmuteName = transmuted("", siteDir, fname);
-        int file = open(transmuteName, O_RDONLY);
-        if (file == -1) {
-            printf(ERROR "Couldn't open %s for inclusion.\n", transmuteName);
-            return;
-        }
-        struct stat data;
-        if (stat(transmuteName, &data)) {
-            printf(ERROR "Can't grab file information for %s.\n", transmuteName);
-            perror("\tstat");
-        }
-        char* map = (char*)mmap(0, data.st_size, PROT_READ, MAP_SHARED, file, 0);
-        if (map == MAP_FAILED) {
-            printf(ERROR "Can't memory map %s for inclusion in another file! The output \033[1mwill\033[0m be malformed.\n", transmuteName);
-            printf("\tIf %s is a template file, the file it is templating will most likely be left empty.\n", transmuteName);
-            perror("\tmmap");
-            return;
-        }
-        if (strncmp(map, "[?]", 3) == 0 || strncmp(map, "[!]", 3) == 0) {
-            Object* obj = new Object;
-            Object* root = parent -> nonvRoot();
-            obj -> parent = root;
-            FileFlags flags;
-            fillObject(map + 3, data.st_size - 3, obj, &flags); // load the file to our parent, basically replacing us
-            for (Node* thing : obj -> children) {
-                if (thing -> type == Node::Type::OBJECT) { // copy over objects so they can be used (they weren't rendered yet)
-                    Object* candidate = (Object*)thing;
-                    root -> addChild(candidate);
-                }
-            }
-            obj -> render(fd, parent, true); // actually render the file
-        }
-        else {
-            PlainText* p = new PlainText;
-            p -> data = map;
-            p -> size = data.st_size;
-            p -> render(fd, scope, false);
-        }
-    }
-};
-
-
 struct Dereference : Node { // dereference and render an Object (the [^] operator)
     char* name;
+
+    ~Dereference() {
+        free(name);
+    }
 
     void render(int fd, Object* scope, bool dereference) {
         Object* found = NULL;
@@ -868,14 +1068,15 @@ size_t fillObject(const char* from, size_t length, Object* container, FileFlags*
                 while (from[i] != ']') {i ++;} // consume at least the closing "]", and anything before it too
                 break; 
             }
-            else if (tagOp == '#') { // include a file. Include actually does three things:
-            // 1. At render-time, load the file as a memory map and parse it to an object tree
-            // 2. Push the loaded file into the object tree at the appropriate position in the object tree (sibling to the actual Include operation)
-            // 3. Render the object in forced dereference mode
-                Include* i = new Include;
-                i -> fname = strdupn(tagData, tagDataSize);
-                i -> fileflags = *fileflags;
-                container -> addChild(i);
+            else if (tagOp == '#') { // include is sorta-deprecated! It now just creates a Dereference with an escaped filename.
+                // I might keep it in because of the escaping functionality, but this is certainly not a definite choice.
+                printf(WARNING "The functionality of [#] has been reviewed and it may be deprecated in the near future.\n\tPlease see the Noteboard (https://swaous.asuscomm.com/sitix/pages/noteboard.html) for March 10th, 2024 for more information.\n");
+                Dereference* d = new Dereference;
+                char* unescaped = strdupn(tagData, tagDataSize);
+                d -> name = escapeString(unescaped, '.');
+                free(unescaped);
+                d -> fileflags = *fileflags;
+                container -> addChild(d);
             }
             else if (tagOp == '@') {
                 const char* tagRequest = tagData;
