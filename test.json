@@ -1,0 +1,12 @@
+{
+    "name": "Hello, World",
+    "thing": {
+        "data": "hello"
+    },
+    "array": [
+        "triton",
+        {
+            "test": "tuba"
+        }
+    ]
+}
