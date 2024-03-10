@@ -336,7 +336,7 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
 
     void render(int fd, Object* scope, bool dereference) { // objects are just delegation agents, they don't contribute anything to the final text.
         if (namingScheme == NamingScheme::Named) { // when objects are rendered, they replace the other objects of the same name on the scope tree.
-            if (parent != NULL) { // replace operations are ALWAYS on the parent, we can't intrude on someone else's scope
+            if (parent != NULL && !dereference) { // replace operations are ALWAYS on the parent, we can't intrude on someone else's scoped
                 parent -> replace(name, this);
             }
         }
@@ -368,8 +368,13 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
         for (Node* node : children) {
             if (node -> type == Node::Type::OBJECT) {
                 Object* candidate = (Object*)node;
+                if (candidate -> namingScheme == Object::NamingScheme::Named) {
+                }
                 if (candidate == nope) {
-                    continue;
+                    break; // do NOT continue, because we need to propagate the illusion that there can only be one instance of an object per scope.
+                    // This is necessary because of situations like [=test One][^test][=test Two][^test], because "nope"ing (inside a replace) when the first one is
+                    // rendered would skip the first one and set the second one - which would mean the second one renders incorrectly. So instead, we
+                    // want to jump out to the next-highest scope when we find an object that is correct, but noped.
                 }
                 if (candidate -> namingScheme == Object::NamingScheme::Named && strcmp(candidate -> name, root) == 0) {
                     ::free(root);
@@ -507,7 +512,7 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
 
     bool replace(const char* name, Object* obj) { // TODO: Free unused memory! At the moment, this IS LEAKING MEMORY!
         // returns true if the object was replaced, and false if it wasn't
-        Object* o = lookup(name);
+        Object* o = lookup(name, obj); // enable excluded-lookup
         if (o == obj) { // if the object that would be replaced is us, we don't want to go through with it.
             return false;
         }
