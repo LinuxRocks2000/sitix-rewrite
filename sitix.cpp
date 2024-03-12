@@ -324,6 +324,17 @@ struct Node { // superclass
     // dereference causes forced rendering on objects (objects don't render by default unless dereferenced with [^name])
 
     virtual void debugPrint() {}; // optional
+
+    virtual void pTree(int tabLevel = 0) { // replacing debugPrint because it's much more usefulicious
+        for (int x = 0; x < tabLevel; x ++) {printf("\t");}
+        printf("Generic Node with type %d ", type);
+        if (parent != NULL) {
+            printf("with parent (%d)\n", parent);
+        }
+        else {
+            printf("without parent\n");
+        }
+    }
 };
 
 
@@ -357,6 +368,11 @@ struct PlainText : Node {
         else {
             write(fd, data, size);
         }
+    }
+
+    virtual void pTree(int tabLevel = 0) { // replacing debugPrint because it's much more usefulicious
+        for (int x = 0; x < tabLevel; x ++) {printf("\t");}
+        printf("Text content\n");
     }
 };
 
@@ -395,6 +411,11 @@ struct TextBlob : Node { // designed for smaller, heap-allocated text bits that 
             write(fd, data, size);
         }
     }
+
+    virtual void pTree(int tabLevel = 0) { // replacing debugPrint because it's much more usefulicious
+        for (int x = 0; x < tabLevel; x ++) {printf("\t");}
+        printf("Text content\n");
+    }
 };
 
 
@@ -409,51 +430,44 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
     // Sitix code is aware of the scope caveats at all times.
     std::vector<Node*> children;
     bool isTemplate = false;
+    bool isFile = false;
     uint32_t highestEnumerated = 0; // the highest enumerated value in this object
 
-    int* rCount = new int; // when objects render, they replace other objects. All the children, the name, and such are copied over.
-    // When objects are replaced, they're deleted.
-    // Do you see the problem here?
-    // To avoid seggies, we use rCount to stop from deleting the content of objects that exist in multiple locations.
-    // This means we delete the object itself, but leave the shared children and shared naming alone.
-    // rCount is a pointer so it's shared between "crap-copies".
-    // POSSIBLE BUG: appending children to a referenced object might not work correctly!
+    Object* ghost = NULL; // if this is not-null, the current object is a "ghost" of that object - everything resolves into the ghost.
+
+    int rCount = 1;
 
     Object() {
-        *rCount = 1;
         type = OBJECT;
     }
 
     void pushedOut() {
-        if (namingScheme == NamingScheme::Named) {
-            printf("MAYBE bumping out %s\n", name);
+        rCount --;
+        if (rCount < 0) {
+            printf(ERROR "Bad reference count. The program will probably crash.\n");
         }
-        if (rCount == NULL) {
-            if (namingScheme == NamingScheme::Named) {
-                printf("NOT bumping out %s\n", name);
-            }
+        if (rCount != 0) {
             return;
         }
-        else{
-            (*rCount) --;
-            if (*rCount != 0) {
-                if (namingScheme == NamingScheme::Named) {
-                    printf("NOT bumping out %s PART 2\n", name);
-                }
-                return;
+        if (ghost != NULL) {
+            ghost -> pushedOut();
+        }
+        if (namingScheme == NamingScheme::Named) {
+            if (name != NULL) {
+                free(name);
+                name = NULL;
             }
         }
-        if (namingScheme == NamingScheme::Named) {
-            printf("actually bumping out %s\n", name);
-        }
-        if (namingScheme == NamingScheme::Named) {
-            free(name);
-        }
-        free(rCount);
-        rCount = NULL;
         for (Node* child : children) {
-            delete child;
+            if (child -> type == Node::Type::OBJECT) {
+                Object* o = (Object*)child;
+                o -> pushedOut();
+            }
+            else {
+                delete child;
+            }
         }
+        delete this;
     }
 
     union {
@@ -466,9 +480,7 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
         Virtual // it's contained inside a logical operation or something similar
     } namingScheme = Virtual;
 
-    ~Object() {
-        pushedOut();
-        /*
+    ~Object() {/*
         for (size_t i = 0; i < children.size(); i ++) {
             Node* child = children[i];
             if (child == NULL) {
@@ -499,6 +511,10 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
     }
 
     void render(int fd, Object* scope, bool dereference) { // objects are just delegation agents, they don't contribute anything to the final text.
+        if (ghost != NULL) {
+            ghost -> render(fd, scope, dereference);
+            return;
+        }
         if (namingScheme == NamingScheme::Named) { // when objects are rendered, they replace the other objects of the same name on the scope tree.
             if (parent != NULL && !dereference) { // replace operations are ALWAYS on the parent, we can't intrude on someone else's scoped
                 parent -> replace(name, this);
@@ -529,6 +545,9 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
         // returning NULL means no suitable object was found here or at any point down in the tree
         // if `nope` is non-null, it will be used as a discriminant (it will not be returned)
         // note that copied objects will be returned; `nope` uses pointer-comparison only.
+        if (ghost != NULL) {
+            return ghost -> lookup(name, nope);
+        }
         size_t nameLength = strlen(name);
         size_t rootSegLen;
         for (rootSegLen = 0; rootSegLen < nameLength; rootSegLen ++) {
@@ -542,14 +561,17 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
         for (Node* node : children) {
             if (node -> type == Node::Type::OBJECT) {
                 Object* candidate = (Object*)node;
-                if (candidate == nope) {
+                if (candidate == nope && parent != NULL) { // if we ARE the root, nope stops being meaningful; this is because the nope system exists
+                    // to allow objects inside a lower scope to overwrite objects in their parent scope (allowing structures like the if config to set global variables)
+                    // however, if the scope it's looking up on *is* the global, there's no reason to try hopping up another scope, and we don't want to reload
+                    // data from disc (such as, loaded files and directories will be "rendered" again when the parser hits that point)
                     break; // do NOT continue, because we need to propagate the illusion that there can only be one instance of an object per scope.
                     // This is necessary because of situations like [=test One][^test][=test Two][^test], because "nope"ing (inside a replace) when the first one is
                     // rendered would skip the first one and set the second one - which would mean the second one renders incorrectly. So instead, we
                     // want to jump out to the next-highest scope when we find an object that is correct, but noped.
                 }
                 if (candidate -> namingScheme == Object::NamingScheme::Named && strcmp(candidate -> name, root) == 0) {
-                    free(root);
+                    //free(root);
                     if (rootSegLen == nameLength) {
                         return candidate;
                     }
@@ -574,17 +596,17 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
                         }
                         char* transmuteNamep1 = transmuted("", root, entry -> d_name);
                         char* transmuteName = escapeString(transmuteNamep1, '.');
+                        free(transmuteNamep1);
                         Object* enumerated = new Object;
                         Object* file = lookup(transmuteName); // guaranteed not to fail
                         if (file == NULL) {
                             printf(ERROR "Unpacking lookup for %s in directory-to-array unpacking FAILED! The output will be malformed!\n", transmuteName);
                             continue;
                         }
-                        *(file -> rCount) ++; // bump the ref count, see the Object definition above for information on this
-                        *enumerated = *file; // "crap-copy" the actual file over
+                        file -> rCount ++; // bump the ref count, see the Object definition above for information on this
+                        enumerated -> ghost = file;
                         enumerated -> namingScheme = Object::NamingScheme::Enumerated; // change the structure of the copied object to be an enumerated entry
-                        enumerated -> number = dirObject -> highestEnumerated; // eventually we've got to set up GhostObjects that have different names from the original,
-                        // but forward everything to the original. that would make this code a LOT cleaner and less buggy.
+                        enumerated -> number = dirObject -> highestEnumerated;
                         dirObject -> highestEnumerated ++;
                         dirObject -> addChild(enumerated); // look up the file and add it to this directory object
                         // the whole scheme is, like, *whoa*
@@ -597,7 +619,6 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
                     closedir(directory);
                     dirObject -> namingScheme = Object::NamingScheme::Named;
                     ::free(directoryName);
-                    ::free(root);
                     dirObject -> name = root;
                     addChild(dirObject);// DON'T free root because it was passed into the dirObject
                     if (rootSegLen == nameLength) {
@@ -612,7 +633,7 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
                     // TODO: add a truncated filename object inside the loaded file, which would contain "mod1.html" rather than
                     // "templates/modules/mod1.html", for instance.
                     TextBlob* fNameContent = new TextBlob;
-                    fNameContent -> data = directoryName;
+                    fNameContent -> data = strdup(root);
                     Object* fNameObj = new Object;
                     fNameObj -> namingScheme = Object::NamingScheme::Named;
                     fNameObj -> name = strdup("filename");
@@ -646,8 +667,9 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
 
                     // put together the actual file object, store it on global, and return it
                     Object* fileObj = new Object;
+                    fileObj -> isFile = true;
                     fileObj -> addChild(fNameObj); // add the filename to the object
-                    fileObj -> namingScheme = Object::NamingScheme::Enumerated;
+                    fileObj -> namingScheme = Object::NamingScheme::Named;
                     fileObj -> name = directoryName; // reference name of the object, so it can be quickly looked up later without another slow cold-load
                     if (strncmp(map, "[?]", 3) == 0 || strncmp(map, "[!]", 3) == 0) {
                         FileFlags flags;
@@ -670,13 +692,16 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
         }
         else {
             ::free(root);
-            return parent -> lookup(name);
+            return parent -> lookup(name, nope);
         }
         ::free(root);
         return NULL;
     }
 
     Object* childSearchUp(const char* name) { // name is expected to be a . separated 
+        if (ghost != NULL) {
+            return ghost -> childSearchUp(name);
+        }
         size_t nameLen = strlen(name);
         size_t segLen;
         for (segLen = 0; segLen < nameLen; segLen ++) {
@@ -716,18 +741,56 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
         return NULL;
     }
 
+    void pTree(int tabLevel = 0) {
+        for (int x = 0; x < tabLevel; x ++) {printf("\t");}
+        printf("Object ");
+        if (parent == NULL) {
+            printf("without parent (root) ");
+        }
+        else {
+            printf("with parent (%d) ", parent);
+        }
+        if (namingScheme == NamingScheme::Named) {
+            printf("named %s ", name);
+        }
+        else if (namingScheme == NamingScheme::Enumerated) {
+            printf("#%d ", number);
+        }
+        else {
+            printf("unnamed ");
+        }
+        printf("(%d)\n", this);
+        for (Node* child : children) {
+            child -> pTree(tabLevel + 1);
+        }
+    }
+
+    void ptrswap(Object* current, Object* repl) {
+        if (ghost != NULL) {
+            ghost -> ptrswap(current, repl);
+            return;
+        }
+        for (size_t i = 0; i < children.size(); i ++) {
+            if (children[i] == current) {
+                children[i] = repl;
+            }
+        }
+    }
+
     bool replace(const char* name, Object* obj) {
+        if (ghost != NULL) {
+            return ghost -> replace(name, obj);
+        }
         // returns true if the object was replaced, and false if it wasn't
         Object* o = lookup(name, obj); // enable excluded-lookup
         if (o == obj) { // if the object that would be replaced is us, we don't want to go through with it.
             return false;
         }
         if (o != NULL) {
-            *(obj -> rCount) ++;
+            obj -> rCount ++;
+            obj -> parent = o -> parent;
+            o -> parent -> ptrswap(o, obj);
             o -> pushedOut();
-            Object* oldParent = o -> parent;
-            *o = *obj;
-            o -> parent = oldParent;
             return true;
         }
         return false;
@@ -739,6 +802,9 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
             printf("named %s", name);
         }
         printf("\n");
+        if (ghost != NULL) {
+            printf("I'm ghosting!\n");
+        }
         printf("my content: \n\n");
         render(0, NULL, true);
         printf("\n\n");
@@ -754,6 +820,18 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
         else {
             return this;
         }
+    }
+};
+
+
+struct DebuggerStatement : Node {
+    virtual void render(int fd, Object* scope, bool dereference) {
+        printf("==== DEBUGGER BREAK ====\n");
+        printf("++++     PARENT     ++++\n");
+        parent -> pTree(1);
+        printf("++++      SCOPE     ++++\n");
+        scope -> pTree(1);
+        printf("====  DEBUGGER OVER ====\n");
     }
 };
 
@@ -778,22 +856,26 @@ struct ForLoop : Node {
             printf(ERROR "Array lookup for %s failed. The output will be malformed.\n", goal);
             return;
         }
-        Object* iterator = new Object;
-        internalObject -> addChild(iterator);
+        Object iterator;
+        iterator.namingScheme = Object::NamingScheme::Named;
+        iterator.name = iteratorName;
+        internalObject -> addChild(&iterator);
         for (size_t i = 0; i < array -> children.size(); i ++) {
             if (array -> children[i] -> type == Node::Type::OBJECT) {
                 Object* object = (Object*)(array -> children[i]);
                 if (object -> namingScheme == Object::NamingScheme::Enumerated) { // ForLoop only checks over enumerated things
-                    *iterator = *object;
-                    *(object -> rCount) ++; // "crap-copy"
-                    iterator -> namingScheme = Object::NamingScheme::Named;
-                    iterator -> name = iteratorName;
+                    iterator.ghost = object;
                     internalObject -> render(fd, scope, true); // force dereference the internal anonymous object
                 }
             }
         }
-        internalObject -> dropObject(iterator);
-        delete iterator;
+        internalObject -> dropObject(&iterator);
+    }
+
+    virtual void pTree(int tabLevel = 0) { // replacing debugPrint because it's much more usefulicious
+        for (int x = 0; x < tabLevel; x ++) {printf("\t");}
+        printf("For loop over %s with iterator named %s\n", goal, iteratorName);
+        internalObject -> pTree(tabLevel + 1);
     }
 };
 
@@ -926,16 +1008,29 @@ struct Dereference : Node { // dereference and render an Object (the [^] operato
     }
 
     void render(int fd, Object* scope, bool dereference) {
-        Object* found = NULL;
-        if (parent != NULL) {
+        Object* found = scope -> lookup(name);
+        if (found == NULL && parent != NULL) {
             found = parent -> lookup(name);
-        }
-        if (found == NULL) {
-            scope -> lookup(name);
         }
         if (found == NULL) {
             printf(ERROR "Couldn't find %s! The output \033[1mwill\033[0m be malformed.\n", name);
             return;
+        }
+        if (found -> isFile) { // dereferencing file roots copies over all their objects to you immediately
+            for (Node* thing : found -> children) {
+                if (thing -> type == Node::Type::OBJECT) {
+                    Object* o = (Object*)thing;
+                    if (o -> namingScheme == Object::NamingScheme::Named) {
+                        if (strcmp(o -> name, "filename") == 0) {
+                            continue; // skip filenames, of course (we want them to be "pure" to the file they're a part of)
+                        }
+                    }
+                    if (!scope -> replace(o -> name, o)) {
+                        o -> rCount ++;
+                        scope -> addChild(o);
+                    }
+                }
+            }
         }
         found -> render(fd, parent, true);
     }
@@ -1057,6 +1152,10 @@ size_t fillObject(const char* from, size_t length, Object* container, FileFlags*
                 wasElse = true;
                 break;
             }
+            else if (tagOp == 'd') {
+                DebuggerStatement* debugger = new DebuggerStatement;
+                container -> addChild(debugger);
+            }
             else if (tagOp == '^') {
                 Dereference* d = new Dereference;
                 d -> name = strdupn(tagData, tagDataSize);
@@ -1068,9 +1167,8 @@ size_t fillObject(const char* from, size_t length, Object* container, FileFlags*
                 while (from[i] != ']') {i ++;} // consume at least the closing "]", and anything before it too
                 break; 
             }
-            else if (tagOp == '#') { // include is sorta-deprecated! It now just creates a Dereference with an escaped filename.
-                // I might keep it in because of the escaping functionality, but this is certainly not a definite choice.
-                printf(WARNING "The functionality of [#] has been reviewed and it may be deprecated in the near future.\n\tPlease see the Noteboard (https://swaous.asuscomm.com/sitix/pages/noteboard.html) for March 10th, 2024 for more information.\n");
+            else if (tagOp == '#') { // update: include will be kept because of the auto-escaping feature, which is nice.
+                //printf(WARNING "The functionality of [#] has been reviewed and it may be deprecated in the near future.\n\tPlease see the Noteboard (https://swaous.asuscomm.com/sitix/pages/noteboard.html) for March 10th, 2024 for more information.\n");
                 Dereference* d = new Dereference;
                 char* unescaped = strdupn(tagData, tagDataSize);
                 d -> name = escapeString(unescaped, '.');
@@ -1100,7 +1198,7 @@ size_t fillObject(const char* from, size_t length, Object* container, FileFlags*
             }
         }
         else if (from[i] == ']' && !escape) {
-            printf("Something has gone terribly wrong\n");
+            printf(INFO "Unmatched closing bracket detected! This is probably not important; there are several minor interpreter bugs that can cause this without actually breaking anything.");
         }
         else {
             size_t plainStart = i;
@@ -1127,22 +1225,22 @@ size_t fillObject(const char* from, size_t length, Object* container, FileFlags*
 }
 
 
-Object string2object(const char* data, size_t length, FileFlags* flags) {
-    Object ret;
-    ret.fileflags = *flags;
+Object* string2object(const char* data, size_t length, FileFlags* flags) {
+    Object* ret = new Object;
+    ret -> fileflags = *flags;
     if (strncmp(data, "[!]", 3) == 0) { // it's a valid Sitix file
-        fillObject(data + 3, length - 3, &ret, flags);
+        fillObject(data + 3, length - 3, ret, flags);
     }
     else if (strncmp(data, "[?]", 3) == 0) {
-        fillObject(data + 3, length - 3, &ret, flags);
-        ret.isTemplate = true;
+        fillObject(data + 3, length - 3, ret, flags);
+        ret -> isTemplate = true;
     }
     else {
         PlainText* text = new PlainText;
         text -> fileflags = *flags;
         text -> data = data;
         text -> size = length;
-        ret.addChild(text);
+        ret -> addChild(text);
     }
     return ret;
 }
@@ -1170,8 +1268,8 @@ void renderFile(const char* in, const char* out) {
         return;
     }
 
-    Object file = string2object(inMap, size, &fileflags);
-    if (file.isTemplate) {
+    Object* file = string2object(inMap, size, &fileflags);
+    if (file -> isTemplate) {
         printf(INFO "%s is marked [?], will not be rendered.\n", in);
         printf("\t If this file should be rendered, replace [?] with [!] in the header.\n");
     }
@@ -1184,9 +1282,11 @@ void renderFile(const char* in, const char* out) {
             printf(ERROR "Couldn't open output file %s (for %s). This file will not be rendered.\n", out, in);
             return;
         }
-        file.render(output, &file, true);
+        //file -> lookup("tuba");
+        file -> render(output, file, true);
         close(output);
     }
+    file -> pushedOut();
     
     close(input);
     munmap(inMap, size);
