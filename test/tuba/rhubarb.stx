@@ -1,1 +1,9 @@
-[?][=someproperty Rhubarbtest]Rhubarb
+[!][@on minify]
+[=someproperty Rhubarbtest]
+Rhubarb
+Filename is [^__file__.filename]
+[f tuba i]
+    [i equals i __file__]
+        Before: [^i.__before__]
+    [/]
+[/]

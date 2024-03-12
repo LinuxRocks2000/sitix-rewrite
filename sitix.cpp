@@ -277,11 +277,21 @@ char* transmuted(const char* from, const char* to, const char* path) { // transm
         path = (const char*)(((char*)path) + 1);
     }
     size_t fromLen = strlen(from);
+    if (from[fromLen - 1] == '/') {
+        fromLen --;
+    }
     size_t toLen = strlen(to);
+    if (to[toLen - 1] == '/') {
+        toLen --;
+    }
     size_t pathLen = strlen(path);
+    if (path[fromLen] == '/') {
+        pathLen --;
+        path ++;
+    }
     size_t retLen = pathLen - fromLen + toLen;
     bool needsSep = false;
-    if ((to[toLen - 1] != '/') && (path[0] != '/')) {
+    if ((to[toLen - 1] != '/') && (path[0] != '/') && (toLen > 0)) {
         needsSep = true;
         retLen ++;
     }
@@ -541,23 +551,52 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
         }
     }
 
-    Object* lookup(const char* name, Object* nope = NULL) { // lookup variant that works on NAMES
+    Object* lookup(const char* lname, Object* nope = NULL) { // lookup variant that works on NAMES
         // returning NULL means no suitable object was found here or at any point down in the tree
         // if `nope` is non-null, it will be used as a discriminant (it will not be returned)
         // note that copied objects will be returned; `nope` uses pointer-comparison only.
         if (ghost != NULL) {
-            return ghost -> lookup(name, nope);
+            return ghost -> lookup(lname, nope);
         }
-        size_t nameLength = strlen(name);
+        size_t nameLength = strlen(lname);
         size_t rootSegLen;
         for (rootSegLen = 0; rootSegLen < nameLength; rootSegLen ++) {
-            if (name[rootSegLen] == '.' && name[rootSegLen - 1] != '\\') {
+            if (lname[rootSegLen] == '.' && lname[rootSegLen - 1] != '\\') {
                 break;
             }
         }
-        char* rootBit = strdupn(name, rootSegLen);
+        char* rootBit = strdupn(lname, rootSegLen);
         char* root = strip(rootBit, '\\');
         free(rootBit);
+        if (strcmp(root, "__this__") == 0) {
+            free(root);
+            if (rootSegLen == nameLength) {
+                return this;
+            }
+            else {
+                return this -> childSearchUp(lname + rootSegLen + 1);
+            }
+        }
+        if (strcmp(root, "__file__") == 0) {
+            free(root);
+            Object* w = walkToFile();
+            w -> pTree();
+            if (rootSegLen == nameLength) {
+                return w;
+            }
+            else {
+                return w -> childSearchUp(lname + rootSegLen + 1);
+            }
+        }
+        if (isFile && (namingScheme == NamingScheme::Named) && (strcmp(name, root) == 0)) { // IF we're a file (or root), AND we have a name, AND the name matches, return us.
+            free(root); // this allows for things like comparing, say, tuba/rhubarb.stx with __file__
+            if (rootSegLen == nameLength) {
+                return this;
+            }
+            else {
+                return childSearchUp(lname + rootSegLen + 1);
+            }
+        }
         for (Node* node : children) {
             if (node -> type == Node::Type::OBJECT) {
                 Object* candidate = (Object*)node;
@@ -576,7 +615,7 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
                         return candidate;
                     }
                     else {
-                        return candidate -> childSearchUp(name + rootSegLen + 1); // the +1 is to consume the '.'
+                        return candidate -> childSearchUp(lname + rootSegLen + 1); // the +1 is to consume the '.'
                     }
                 }
             }
@@ -626,7 +665,7 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
                         return dirObject;
                     }
                     else {
-                        return dirObject -> childSearchUp(name + rootSegLen + 1);
+                        return dirObject -> childSearchUp(lname + rootSegLen + 1);
                     }
                 }
                 else if (S_ISREG(sb.st_mode)) {
@@ -671,7 +710,7 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
                     fileObj -> isFile = true;
                     fileObj -> addChild(fNameObj); // add the filename to the object
                     fileObj -> namingScheme = Object::NamingScheme::Named;
-                    fileObj -> name = directoryName; // reference name of the object, so it can be quickly looked up later without another slow cold-load
+                    fileObj -> name = strdup(root); // reference name of the object, so it can be quickly looked up later without another slow cold-load
                     if (strncmp(map, "[?]", 3) == 0 || strncmp(map, "[!]", 3) == 0) {
                         FileFlags flags;
                         fillObject(map + 3, data.st_size - 3, fileObj, &flags);
@@ -685,6 +724,7 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
                     addChild(fileObj); // since we're the global scope, we should add the file to us.
                     // the goal is to create an illusion that the entire directory structure is a cohesive part of the object tree
                     // and then sorta just load files when they ask us to
+                    free(directoryName);
                     free(root);
                     return fileObj;
                 }
@@ -693,7 +733,7 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
         }
         else {
             ::free(root);
-            return parent -> lookup(name, nope);
+            return parent -> lookup(lname, nope);
         }
         ::free(root);
         return NULL;
@@ -834,6 +874,24 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
                 children[i] = repl;
             }
         }
+    }
+
+    Object* deghost() { // walk across the ghost tree, grabbing the actual object
+        if (ghost == NULL) {
+            return this;
+        }
+        return ghost -> deghost();
+    }
+
+    Object* walkToFile() { // walk up the object tree, until we hit something that's a file
+        if (isFile) { // if we're definitely a file, return us
+            return this;
+        }
+        if (parent != NULL) { // if we have a parent and are not a file, ask the parent!
+            return parent -> walkToFile();
+        }
+        printf(WARNING "File walk failed! This means the tree is misconfigured. The output may be malformed.\n");
+        return this; // if we don't have a parent and aren't a file, return us anyways and provide an warning.
     }
 
     bool replace(const char* name, Object* obj) {
@@ -996,6 +1054,7 @@ struct IfStatement : Node {
                 printf(ERROR "Can't find %s for an if statement. The output will be malformed.\n", oneName);
                 return;
             }
+            one = one -> deghost();
             Object* two = scope -> lookup(twoName);
             if (two == NULL) {
                 two = parent -> lookup(twoName);
@@ -1004,6 +1063,7 @@ struct IfStatement : Node {
                 printf(ERROR "Can't find %s for an if statement. The output will be malformed.\n", twoName);
                 return;
             }
+            two = two -> deghost();
             if (one == two) { // if the pointers are the same
                 is = true;
             }
@@ -1067,9 +1127,9 @@ struct Dereference : Node { // dereference and render an Object (the [^] operato
     }
 
     void render(int fd, Object* scope, bool dereference) {
-        Object* found = scope -> lookup(name);
-        if (found == NULL && parent != NULL) {
-            found = parent -> lookup(name);
+        Object* found = parent -> lookup(name);
+        if (found == NULL) {
+            found = scope -> lookup(name);
         }
         if (found == NULL) {
             printf(ERROR "Couldn't find %s! The output \033[1mwill\033[0m be malformed.\n", name);
@@ -1328,9 +1388,20 @@ void renderFile(const char* in, const char* out) {
     }
 
     Object* file = string2object(inMap, size, &fileflags);
+    file -> namingScheme = Object::NamingScheme::Named;
+    file -> name = transmuted(siteDir, "", in);
+    file -> isFile = true;
+    Object* fNameObj = new Object;
+    fNameObj -> namingScheme = Object::NamingScheme::Named;
+    fNameObj -> name = strdup("filename");
+    PlainText* fNameContent = new PlainText;
+    fNameContent -> data = in;
+    fNameContent -> size = strlen(in);
+    fNameObj -> addChild(fNameContent);
+    file -> addChild(fNameObj);
     if (file -> isTemplate) {
         printf(INFO "%s is marked [?], will not be rendered.\n", in);
-        printf("\t If this file should be rendered, replace [?] with [!] in the header.\n");
+        printf("\tIf this file should be rendered, replace [?] with [!] in the header.\n");
     }
     else {
         int output = open(out, O_WRONLY | O_CREAT | O_TRUNC, 0666); // rw for anyone, it's not a protected file (this may lead to security vulnerabilities in the future)
