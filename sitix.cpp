@@ -443,6 +443,8 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
 
     Object* ghost = NULL; // if this is not-null, the current object is a "ghost" of that object - everything resolves into the ghost.
 
+    bool virile = true; // does it call replace()?
+
     int rCount = 1;
 
     Object() {
@@ -524,7 +526,7 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
             return;
         }
         if (namingScheme == NamingScheme::Named) { // when objects are rendered, they replace the other objects of the same name on the scope tree.
-            if (parent != NULL && !dereference) { // replace operations are ALWAYS on the parent, we can't intrude on someone else's scoped
+            if (parent != NULL && !dereference && virile) { // replace operations are ALWAYS on the parent, we can't intrude on someone else's scoped
                 parent -> replace(name, this);
             }
         }
@@ -672,6 +674,7 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
                     TextBlob* fNameContent = new TextBlob;
                     fNameContent -> data = strdup(root);
                     Object* fNameObj = new Object;
+                    fNameObj -> virile = false;
                     fNameObj -> namingScheme = Object::NamingScheme::Named;
                     fNameObj -> name = strdup("filename");
                     fNameObj -> addChild(fNameContent);
@@ -855,7 +858,13 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
         else {
             printf("unnamed ");
         }
-        printf("(%d)\n", this);
+        printf("(%d)", this);
+        if (ghost != NULL) {
+            printf(" ghosting %d\n", ghost);
+        }
+        else {
+            printf("\n");
+        }
         for (Node* child : children) {
             child -> pTree(tabLevel + 1);
         }
@@ -1073,18 +1082,18 @@ struct IfStatement : Node {
             }
         }
         else if (mode == Mode::Equality) {
-            Object* one = scope -> lookup(oneName);
+            Object* one = parent -> lookup(oneName);
             if (one == NULL) {
-                one = parent -> lookup(oneName);
+                one = scope -> lookup(oneName);
             }
             if (one == NULL) {
                 printf(ERROR "Can't find %s for an if statement. The output will be malformed.\n", oneName);
                 return;
             }
             one = one -> deghost();
-            Object* two = scope -> lookup(twoName);
+            Object* two = parent -> lookup(twoName);
             if (two == NULL) {
-                two = parent -> lookup(twoName);
+                two = scope -> lookup(twoName);
             }
             if (two == NULL) {
                 printf(ERROR "Can't find %s for an if statement. The output will be malformed.\n", twoName);
@@ -1166,10 +1175,8 @@ struct Dereference : Node { // dereference and render an Object (the [^] operato
             for (Node* thing : found -> children) {
                 if (thing -> type == Node::Type::OBJECT) {
                     Object* o = (Object*)thing;
-                    if (o -> namingScheme == Object::NamingScheme::Named) {
-                        if (strcmp(o -> name, "filename") == 0) {
-                            continue; // skip filenames, of course (we want them to be "pure" to the file they're a part of)
-                        }
+                    if (!o -> virile) {
+                        continue;
                     }
                     if (!scope -> replace(o -> name, o)) {
                         o -> rCount ++;
@@ -1431,11 +1438,11 @@ void renderFile(const char* in, const char* out) {
     file -> name = transmuted(siteDir, "", in);
     file -> isFile = true;
     Object* fNameObj = new Object;
+    fNameObj -> virile = false;
     fNameObj -> namingScheme = Object::NamingScheme::Named;
     fNameObj -> name = strdup("filename");
-    PlainText* fNameContent = new PlainText;
-    fNameContent -> data = in;
-    fNameContent -> size = strlen(in);
+    TextBlob* fNameContent = new TextBlob;
+    fNameContent -> data = transmuted(siteDir, "", in);
     fNameObj -> addChild(fNameContent);
     file -> addChild(fNameObj);
     if (file -> isTemplate) {
