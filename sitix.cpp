@@ -599,6 +599,7 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
                         free(transmuteNamep1);
                         Object* enumerated = new Object;
                         Object* file = lookup(transmuteName); // guaranteed not to fail
+                        free(transmuteName);
                         if (file == NULL) {
                             printf(ERROR "Unpacking lookup for %s in directory-to-array unpacking FAILED! The output will be malformed!\n", transmuteName);
                             continue;
@@ -842,7 +843,7 @@ struct ForLoop : Node {
     Object* internalObject; // the object we're going to render at every point in the loop
 
     ~ForLoop() {
-        delete internalObject; // it was virtual. it can't possibly have been referenced. so let's just get rid of it.
+        internalObject -> pushedOut();
         free(goal); // they will not be needed *ominous grin*
         free(iteratorName);
     }
@@ -900,9 +901,9 @@ struct IfStatement : Node {
     bool hasElse = false;
 
     ~IfStatement() {
-        delete mainObject; // can't have been referenced, 'twas virtual
+        mainObject -> pushedOut();
         if (hasElse) {
-            delete elseObject; // ditto
+            elseObject -> pushedOut();
         }
         switch (mode) {
             case Config:
@@ -1198,7 +1199,7 @@ size_t fillObject(const char* from, size_t length, Object* container, FileFlags*
             }
         }
         else if (from[i] == ']' && !escape) {
-            printf(INFO "Unmatched closing bracket detected! This is probably not important; there are several minor interpreter bugs that can cause this without actually breaking anything.");
+            printf(INFO "Unmatched closing bracket detected! This is probably not important; there are several minor interpreter bugs that can cause this without actually breaking anything.\n");
         }
         else {
             size_t plainStart = i;
