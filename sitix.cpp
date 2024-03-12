@@ -363,9 +363,7 @@ struct PlainText : Node {
                 if (data[i] == ' ' || data[i] == '\t' || data[i] == '\n') {
                     if (!hadSpace) {
                         hadSpace = true;
-                        if (i != 0) { // don't write the first whitespaces in a file, that's dumb
-                            write(fd, " ", 1);
-                        }
+                        write(fd, " ", 1);
                     }
                     continue;
                 }
