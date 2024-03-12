@@ -571,7 +571,7 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
                     // want to jump out to the next-highest scope when we find an object that is correct, but noped.
                 }
                 if (candidate -> namingScheme == Object::NamingScheme::Named && strcmp(candidate -> name, root) == 0) {
-                    //free(root);
+                    free(root);
                     if (rootSegLen == nameLength) {
                         return candidate;
                     }
