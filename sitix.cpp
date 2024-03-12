@@ -699,9 +699,12 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
         return NULL;
     }
 
-    Object* childSearchUp(const char* name) { // name is expected to be a . separated 
+    Object* childSearchUp(const char* name, Object* context = NULL) { // name is expected to be a . separated 
+        if (context == NULL) {
+            context = parent;
+        }
         if (ghost != NULL) {
-            return ghost -> childSearchUp(name);
+            return ghost -> childSearchUp(name, parent);
         }
         size_t nameLen = strlen(name);
         size_t segLen;
@@ -727,6 +730,54 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
                         }
                     }
                 }
+                else if (strcmp(mSeg, "__before__") == 0) {
+                    Object* last = NULL;
+                    for (Node* n : context -> children) {
+                        if (n -> type == Node::Type::OBJECT) {
+                            Object* candidate = (Object*)n;
+                            if (candidate -> ptrEquals(this)) {
+                                break;
+                            }
+                            else if (candidate -> namingScheme == NamingScheme::Enumerated) {
+                                last = candidate;
+                            }
+                        }
+                    }
+                    if (segLen == nameLen) { // if we're the last requested entry
+                        return last;
+                    }
+                    else if (last != NULL) {
+                        return last -> childSearchUp(name + segLen + 1);
+                    }
+                    else {
+                        return NULL;
+                    }
+                }
+                else if (strcmp(mSeg, "__after__") == 0) {
+                    Object* next = NULL;
+                    bool goin = false;
+                    for (Node* n : context -> children) {
+                        if (n -> type == Node::Type::OBJECT) {
+                            Object* candidate = (Object*)n;
+                            if (candidate -> ptrEquals(this)) {
+                                goin = true;
+                            }
+                            else if (goin && candidate -> namingScheme == NamingScheme::Enumerated) {
+                                next = candidate;
+                                break;
+                            }
+                        }
+                    }
+                    if (segLen == nameLen) { // if we're the last requested entry
+                        return next;
+                    }
+                    else if (next != NULL) {
+                        return next -> childSearchUp(name + segLen + 1);
+                    }
+                    else {
+                        return NULL;
+                    }
+                }
                 else if (candidate -> namingScheme == Object::NamingScheme::Named && strcmp(candidate -> name, mSeg) == 0) {
                     ::free(mSeg);
                     if (segLen == nameLen) {
@@ -740,6 +791,13 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
         }
         ::free(mSeg);
         return NULL;
+    }
+
+    bool ptrEquals(Object* thing) {
+        if (ghost != NULL) {
+            return ghost -> ptrEquals(thing);
+        }
+        return this == thing;
     }
 
     void pTree(int tabLevel = 0) {
