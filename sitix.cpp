@@ -578,7 +578,6 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
         if (strcmp(root, "__file__") == 0) {
             free(root);
             Object* w = walkToFile();
-            w -> pTree();
             if (rootSegLen == nameLength) {
                 return w;
             }
@@ -951,6 +950,36 @@ struct DebuggerStatement : Node {
 };
 
 
+struct Copier : Node {
+    char* target;
+    char* object;
+
+    ~Copier() {
+        free(target);
+        free(object);
+    }
+
+    void render(int fd, Object* scope, bool dereference) {
+        Object* t = parent -> lookup(target);
+        if (t == NULL) {
+            t = scope -> lookup(target);
+        }
+        if (t == NULL) {
+            printf(ERROR "Couldn't find %s for a copy operation. The output will be malformed.\n", target);
+        }
+        Object* o = parent -> lookup(object);
+        if (o == NULL) {
+            o = scope -> lookup(object);
+        }
+        if (o == NULL) {
+            printf(ERROR "Couldn't find %s for a copy operation. The output will be malformed.\n", object);
+        }
+        o -> rCount ++;
+        t -> ghost = o;
+    }
+};
+
+
 struct ForLoop : Node {
     char* goal; // the name of the object we're going to iterate over
     char* iteratorName; // the name of the object we're going to create as an iterator when this loop is rendered
@@ -1283,6 +1312,18 @@ size_t fillObject(const char* from, size_t length, Object* container, FileFlags*
                 // if it wasn't already consumed, it's either INVALID or OURS! Assume the latter and break.
                 while (from[i] != ']') {i ++;} // consume at least the closing "]", and anything before it too
                 break; 
+            }
+            else if (tagOp == '~') {
+                Copier* c = new Copier; // doesn't actually copy, just ghosts
+                const char* targetName = tagData;
+                size_t targetNameLen;
+                for (targetNameLen = 0; targetName[targetNameLen] != ' '; targetNameLen ++);
+                const char* objectName = tagData + targetNameLen + 1;
+                size_t objectNameLength;
+                for (objectNameLength = 0; objectName[objectNameLength] != ']'; objectNameLength ++);
+                c -> target = strdupn(targetName, targetNameLen);
+                c -> object = strdupn(objectName, objectNameLength);
+                container -> addChild(c);
             }
             else if (tagOp == '#') { // update: include will be kept because of the auto-escaping feature, which is nice.
                 //printf(WARNING "The functionality of [#] has been reviewed and it may be deprecated in the near future.\n\tPlease see the Noteboard (https://swaous.asuscomm.com/sitix/pages/noteboard.html) for March 10th, 2024 for more information.\n");
