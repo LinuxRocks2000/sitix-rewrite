@@ -122,6 +122,10 @@
 // At the moment the program leaks a LOT of memory. like, a LOT.
 
 
+#define INFO     "\033[32m[  INFO   ]\033[0m "
+#define ERROR  "\033[1;31m[  ERROR  ]\033[0m "
+#define WARNING  "\033[33m[ WARNING ]\033[0m "
+
 #include <dirent.h>
 #include <stdio.h>
 #include <sys/stat.h>
@@ -135,11 +139,10 @@
 #include <ftw.h>
 #include <sys/types.h>
 #include <dirent.h>
-
-
-#define INFO     "\033[32m[  INFO   ]\033[0m "
-#define ERROR  "\033[1;31m[  ERROR  ]\033[0m "
-#define WARNING  "\033[33m[ WARNING ]\033[0m "
+#include <string>
+#include "fileflags.h"
+#include "mapview.hpp"
+#include "sitixwriter.hpp"
 
 
 const char* outputDir = "output"; // global variables are gross but some of the c standard library higher-order functions I'm using don't support argument passing
@@ -184,27 +187,21 @@ char* strip(const char* thing, char trigger) { // clears all instances of a symb
 }
 
 
-char* escapeString(const char* thing, char toEscape) {
+std::string escapeString(std::string thing, char toEscape) {
     size_t escapeC = 0;
-    size_t size = strlen(thing);
-    for (size_t i = 0; i < size; i ++) {
+    for (size_t i = 0; i < thing.size(); i ++) {
         if (thing[i] == toEscape) {
             escapeC ++;
         }
     }
-    char* ret = (char*)malloc(size + escapeC + 1);
-    ret[size + escapeC] = 0;
+    std::string ret;// = (char*)malloc(size + escapeC + 1);
+    ret.reserve(thing.size() + escapeC);
     size_t i = 0;
-    size_t point = 0;
-    while (i < size + escapeC) {
+    while (i < thing.size() + escapeC) {
         if (thing[i] == toEscape) {
-            ret[i] = '\\';
-            point ++;
-            ret[i + point] = thing[i];
+            ret += '\\';
         }
-        else {
-            ret[i + point] = thing[i];
-        }
+        ret += thing[i];
         i ++;
     }
     return ret;
@@ -306,13 +303,15 @@ char* transmuted(const char* from, const char* to, const char* path) { // transm
     return ret;
 }
 
+std::string transmuted(std::string from, std::string to, std::string path) {
+    char* r = transmuted(from.c_str(), to.c_str(), path.c_str());
+    std::string ret = r;
+    free(r);
+    return ret;
+}
+
 
 struct Object; // forward-dec
-
-
-struct FileFlags {
-    bool minify = false;
-};
 
 
 struct Node { // superclass
@@ -329,7 +328,7 @@ struct Node { // superclass
         OBJECT = 7
     } type = OTHER; // it's necessary to specificate from Node to plaintext, object, etc in some cases.
 
-    virtual void render(int fd, Object* scope, bool dereference = false) = 0; // true virtual function
+    virtual void render(SitixWriter* stream, Object* scope, bool dereference = false) = 0; // true virtual function
     // scope is a SECONDARY scope. If a lookup fails in the primary scope (the parent), scope lookup will be performed in the secondary scope.
     // dereference causes forced rendering on objects (objects don't render by default unless dereferenced with [^name])
 
@@ -345,37 +344,23 @@ struct Node { // superclass
             printf("without parent\n");
         }
     }
+
+    virtual void attachToParent(Object* parent) {
+        // optional
+    }
 };
 
 
 struct PlainText : Node {
-    const char* data = NULL;
-    size_t size = 0;
+    MapView data;
 
-    PlainText() {
+    PlainText(MapView d) : data(d) {
         type = PLAINTEXT;
     }
 
-    void render(int fd, Object* scope, bool dereference) {
-        if (fileflags.minify) { // TODO: buffering to make this more fasterly
-            bool hadSpace = false;
-            for (size_t i = 0; i < size; i ++) {
-                if (data[i] == ' ' || data[i] == '\t' || data[i] == '\n') {
-                    if (!hadSpace) {
-                        hadSpace = true;
-                        write(fd, " ", 1);
-                    }
-                    continue;
-                }
-                else {
-                    hadSpace = false;
-                }
-                write(fd, &data[i], 1);
-            }
-        }
-        else {
-            write(fd, data, size);
-        }
+    void render(SitixWriter* stream, Object* scope, bool dereference) {
+        stream -> setFlags(fileflags);
+        stream -> write(data);
     }
 
     virtual void pTree(int tabLevel = 0) { // replacing debugPrint because it's much more usefulicious
@@ -386,38 +371,15 @@ struct PlainText : Node {
 
 
 struct TextBlob : Node { // designed for smaller, heap-allocated text bits that it frees (not suitable for memory maps)
-    char* data = NULL;
+    std::string data;
+
     TextBlob() {
         type = TEXTBLOB;
     }
 
-    ~TextBlob() {
-        free(data);
-    }
-
-    void render(int fd, Object* scope, bool dereference) {
-        size_t size = strlen(data);
-        if (fileflags.minify) { // TODO: buffering to make this more fasterly
-            bool hadSpace = false;
-            for (size_t i = 0; i < size; i ++) {
-                if (data[i] == ' ' || data[i] == '\t' || data[i] == '\n') {
-                    if (!hadSpace) {
-                        hadSpace = true;
-                        if (i != 0) { // don't write the first whitespaces in a file, that's dumb
-                            write(fd, " ", 1);
-                        }
-                    }
-                    continue;
-                }
-                else {
-                    hadSpace = false;
-                }
-                write(fd, &data[i], 1);
-            }
-        }
-        else {
-            write(fd, data, size);
-        }
+    void render(SitixWriter* out, Object* scope, bool dereference) {
+        out -> setFlags(fileflags);
+        out -> write(data);
     }
 
     virtual void pTree(int tabLevel = 0) { // replacing debugPrint because it's much more usefulicious
@@ -428,7 +390,7 @@ struct TextBlob : Node { // designed for smaller, heap-allocated text bits that 
 
 
 Object string2object(const char* data, size_t length); // forward-dec
-size_t fillObject(const char*, size_t, Object*, FileFlags*);
+void fillObject(MapView& m, Object*, FileFlags*);
 
 
 struct Object : Node { // Sitix objects contain a list of *nodes*, which can be enumerated (like for array reference), named (for variables), operations, or pure text.
@@ -462,12 +424,6 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
         if (ghost != NULL) {
             ghost -> pushedOut();
         }
-        if (namingScheme == NamingScheme::Named) {
-            if (name != NULL) {
-                free(name);
-                name = NULL;
-            }
-        }
         for (Node* child : children) {
             if (child -> type == Node::Type::OBJECT) {
                 Object* o = (Object*)child;
@@ -480,12 +436,11 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
         delete this;
     }
 
-    union {
-        char* name;
-        uint32_t number;
-    };
+    std::string name; // a union would save some bytes of space but would cause annoying crap with the std::string name.
+    uint32_t number;
+
     enum NamingScheme {
-        Named, // it has a real name, which is contained in char* name (which will be a proper C string)
+        Named, // it has a real name, which is contained in std::string name
         Enumerated, // it has a number assigned by the parent
         Virtual // it's contained inside a logical operation or something similar
     } namingScheme = Virtual;
@@ -520,9 +475,9 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
         }*/
     }
 
-    void render(int fd, Object* scope, bool dereference) { // objects are just delegation agents, they don't contribute anything to the final text.
+    void render(SitixWriter* out, Object* scope, bool dereference) { // objects are just delegation agents, they don't contribute anything to the final text.
         if (ghost != NULL) {
-            ghost -> render(fd, scope, dereference);
+            ghost -> render(out, scope, dereference);
             return;
         }
         if (namingScheme == NamingScheme::Named) { // when objects are rendered, they replace the other objects of the same name on the scope tree.
@@ -534,13 +489,14 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
             return;
         }
         for (size_t i = 0; i < children.size(); i ++) {
-            children[i] -> render(fd, scope);
+            children[i] -> render(out, scope);
         }
     }
 
     void addChild(Node* child) {
         child -> parent = this;
         children.push_back(child);
+        child -> attachToParent(this);
     }
 
     void dropObject(Object* object) {
@@ -551,49 +507,48 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
         }
     }
 
-    Object* lookup(const char* lname, Object* nope = NULL) { // lookup variant that works on NAMES
+    Object* lookup(std::string& lname, Object* nope = NULL) { // lookup variant that works on NAMES
         // returning NULL means no suitable object was found here or at any point down in the tree
         // if `nope` is non-null, it will be used as a discriminant (it will not be returned)
         // note that copied objects will be returned; `nope` uses pointer-comparison only.
         if (ghost != NULL) {
             return ghost -> lookup(lname, nope);
         }
-        size_t nameLength = strlen(lname);
         size_t rootSegLen;
-        for (rootSegLen = 0; rootSegLen < nameLength; rootSegLen ++) {
+        for (rootSegLen = 0; rootSegLen < lname.size(); rootSegLen ++) {
             if (lname[rootSegLen] == '.' && lname[rootSegLen - 1] != '\\') {
                 break;
             }
         }
-        char* rootBit = strdupn(lname, rootSegLen);
+        char* rootBit = strdupn(lname.c_str(), rootSegLen);
         char* root = strip(rootBit, '\\');
         free(rootBit);
         if (strcmp(root, "__this__") == 0) {
             free(root);
-            if (rootSegLen == nameLength) {
+            if (rootSegLen == lname.size()) {
                 return this;
             }
             else {
-                return this -> childSearchUp(lname + rootSegLen + 1);
+                return this -> childSearchUp(lname.c_str() + rootSegLen + 1);
             }
         }
         if (strcmp(root, "__file__") == 0) {
             free(root);
             Object* w = walkToFile();
-            if (rootSegLen == nameLength) {
+            if (rootSegLen == lname.size()) {
                 return w;
             }
             else {
-                return w -> childSearchUp(lname + rootSegLen + 1);
+                return w -> childSearchUp(lname.c_str() + rootSegLen + 1);
             }
         }
-        if (isFile && (namingScheme == NamingScheme::Named) && (strcmp(name, root) == 0)) { // IF we're a file (or root), AND we have a name, AND the name matches, return us.
+        if (isFile && (namingScheme == NamingScheme::Named) && (strcmp(name.c_str(), root) == 0)) { // IF we're a file (or root), AND we have a name, AND the name matches, return us.
             free(root); // this allows for things like comparing, say, tuba/rhubarb.stx with __file__
-            if (rootSegLen == nameLength) {
+            if (rootSegLen == lname.size()) {
                 return this;
             }
             else {
-                return childSearchUp(lname + rootSegLen + 1);
+                return childSearchUp(lname.c_str() + rootSegLen + 1);
             }
         }
         for (Node* node : children) {
@@ -608,13 +563,13 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
                     // rendered would skip the first one and set the second one - which would mean the second one renders incorrectly. So instead, we
                     // want to jump out to the next-highest scope when we find an object that is correct, but noped.
                 }
-                if (candidate -> namingScheme == Object::NamingScheme::Named && strcmp(candidate -> name, root) == 0) {
+                if (candidate -> namingScheme == Object::NamingScheme::Named && strcmp(candidate -> name.c_str(), root) == 0) {
                     free(root);
-                    if (rootSegLen == nameLength) {
+                    if (rootSegLen == lname.size()) {
                         return candidate;
                     }
                     else {
-                        return candidate -> childSearchUp(lname + rootSegLen + 1); // the +1 is to consume the '.'
+                        return candidate -> childSearchUp(lname.c_str() + rootSegLen + 1); // the +1 is to consume the '.'
                     }
                 }
             }
@@ -633,11 +588,10 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
                             continue;
                         }
                         char* transmuteNamep1 = transmuted("", root, entry -> d_name);
-                        char* transmuteName = escapeString(transmuteNamep1, '.');
+                        std::string transmuteName = escapeString(transmuteNamep1, '.');
                         free(transmuteNamep1);
                         Object* enumerated = new Object;
                         Object* file = lookup(transmuteName); // guaranteed not to fail
-                        free(transmuteName);
                         if (file == NULL) {
                             printf(ERROR "Unpacking lookup for %s in directory-to-array unpacking FAILED! The output will be malformed!\n", transmuteName);
                             continue;
@@ -660,11 +614,11 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
                     ::free(directoryName);
                     dirObject -> name = root;
                     addChild(dirObject);// DON'T free root because it was passed into the dirObject
-                    if (rootSegLen == nameLength) {
+                    if (rootSegLen == lname.size()) {
                         return dirObject;
                     }
                     else {
-                        return dirObject -> childSearchUp(lname + rootSegLen + 1);
+                        return dirObject -> childSearchUp(lname.c_str() + rootSegLen + 1);
                     }
                 }
                 else if (S_ISREG(sb.st_mode)) {
@@ -672,36 +626,16 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
                     // TODO: add a truncated filename object inside the loaded file, which would contain "mod1.html" rather than
                     // "templates/modules/mod1.html", for instance.
                     TextBlob* fNameContent = new TextBlob;
-                    fNameContent -> data = strdup(root);
+                    fNameContent -> data = root;
                     Object* fNameObj = new Object;
                     fNameObj -> virile = false;
                     fNameObj -> namingScheme = Object::NamingScheme::Named;
-                    fNameObj -> name = strdup("filename");
+                    fNameObj -> name = "filename";
                     fNameObj -> addChild(fNameContent);
 
-                    // memory map and load the actual file
-                    int file = open(directoryName, O_RDONLY);
-                    if (file == -1) {
-                        printf(ERROR "Couldn't open %s (%s) for file-to-object unpacking.\n", root, directoryName);
-                        free(directoryName);
-                        free(root);
-                        return NULL;
-                    }
-                    struct stat data;
-                    if (stat(directoryName, &data)) {
-                        printf(ERROR "Can't grab file information for %s.\n", root);
-                        perror("\tstat");
-                        free(directoryName);
-                        free(root);
-                        return NULL;
-                    }
-                    char* map = (char*)mmap(0, data.st_size, PROT_READ, MAP_SHARED, file, 0);
-                    close(file);
-                    if (map == MAP_FAILED) {
-                        printf(ERROR "Can't memory map %s for directory-to-array inflation.\n", root);
-                        perror("\tmmap");
-                        free(directoryName);
-                        free(root);
+                    MapView map(directoryName);
+                    if (!map.isValid()) {
+                        printf(ERROR "Invalid map!\n");
                         return NULL;
                     }
 
@@ -711,14 +645,15 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
                     fileObj -> addChild(fNameObj); // add the filename to the object
                     fileObj -> namingScheme = Object::NamingScheme::Named;
                     fileObj -> name = strdup(root); // reference name of the object, so it can be quickly looked up later without another slow cold-load
-                    if (strncmp(map, "[?]", 3) == 0 || strncmp(map, "[!]", 3) == 0) {
+                    if (map.cmp("[?]") || map.cmp("[!]")) {
                         FileFlags flags;
-                        fillObject(map + 3, data.st_size - 3, fileObj, &flags);
+                        map += 3;
+                        fillObject(map, fileObj, &flags);
+                        fNameContent -> fileflags = flags;
+                        fNameObj -> fileflags = flags;
                     }
                     else {
-                        PlainText* content = new PlainText;
-                        content -> data = map;
-                        content -> size = data.st_size;
+                        PlainText* content = new PlainText(map);
                         fileObj -> addChild(content);
                     }
                     addChild(fileObj); // since we're the global scope, we should add the file to us.
@@ -818,7 +753,7 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
                         return NULL;
                     }
                 }
-                else if (candidate -> namingScheme == Object::NamingScheme::Named && strcmp(candidate -> name, mSeg) == 0) {
+                else if (candidate -> namingScheme == Object::NamingScheme::Named && strcmp(candidate -> name.c_str(), mSeg) == 0) {
                     ::free(mSeg);
                     if (segLen == nameLen) {
                         return candidate;
@@ -850,7 +785,7 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
             printf("with parent (%d) ", parent);
         }
         if (namingScheme == NamingScheme::Named) {
-            printf("named %s ", name);
+            printf("named %s ", name.c_str());
         }
         else if (namingScheme == NamingScheme::Enumerated) {
             printf("#%d ", number);
@@ -900,7 +835,7 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
         return this; // if we don't have a parent and aren't a file, return us anyways and provide an warning.
     }
 
-    bool replace(const char* name, Object* obj) {
+    bool replace(std::string& name, Object* obj) {
         if (ghost != NULL) {
             return ghost -> replace(name, obj);
         }
@@ -948,7 +883,7 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
 
 
 struct DebuggerStatement : Node {
-    virtual void render(int fd, Object* scope, bool dereference) {
+    virtual void render(SitixWriter* out, Object* scope, bool dereference) {
         printf("==== DEBUGGER BREAK ====\n");
         printf("++++     PARENT     ++++\n");
         parent -> pTree(1);
@@ -960,15 +895,10 @@ struct DebuggerStatement : Node {
 
 
 struct Copier : Node {
-    char* target;
-    char* object;
+    std::string target;
+    std::string object;
 
-    ~Copier() {
-        free(target);
-        free(object);
-    }
-
-    void render(int fd, Object* scope, bool dereference) {
+    void render(SitixWriter* out, Object* scope, bool dereference) {
         Object* t = parent -> lookup(target);
         if (t == NULL) {
             t = scope -> lookup(target);
@@ -990,17 +920,33 @@ struct Copier : Node {
 
 
 struct ForLoop : Node {
-    char* goal; // the name of the object we're going to iterate over
-    char* iteratorName; // the name of the object we're going to create as an iterator when this loop is rendered
+    std::string goal; // the name of the object we're going to iterate over
+    std::string iteratorName; // the name of the object we're going to create as an iterator when this loop is rendered
     Object* internalObject; // the object we're going to render at every point in the loop
 
     ~ForLoop() {
+        if (internalObject == NULL) {
+            printf("DOUBLE FREE\n");
+        }
         internalObject -> pushedOut();
-        free(goal); // they will not be needed *ominous grin*
-        free(iteratorName);
+        internalObject = NULL;
     }
 
-    void render(int fd, Object* scope, bool dereference) { // the memory management here is truly horrendous.
+    ForLoop(MapView tagData, MapView& map, FileFlags* flags) {
+        internalObject = new Object;
+        tagData.trim();
+        goal = tagData.consume(' ').toString();
+        tagData.trim();
+        fileflags = *flags;
+        iteratorName = tagData.toString(); // whatever's left is the name of the iterator
+        fillObject(map, internalObject, flags);
+    }
+
+    void attachToParent(Object* thing) {
+        internalObject -> parent = thing;
+    }
+
+    void render(SitixWriter* out, Object* scope, bool dereference) { // the memory management here is truly horrendous.
         Object* array = scope -> lookup(goal);
         if (array == NULL) {
             array = parent -> lookup(goal);
@@ -1018,7 +964,7 @@ struct ForLoop : Node {
                 Object* object = (Object*)(array -> children[i]);
                 if (object -> namingScheme == Object::NamingScheme::Enumerated) { // ForLoop only checks over enumerated things
                     iterator.ghost = object;
-                    internalObject -> render(fd, scope, true); // force dereference the internal anonymous object
+                    internalObject -> render(out, scope, true); // force dereference the internal anonymous object
                 }
             }
         }
@@ -1027,7 +973,7 @@ struct ForLoop : Node {
 
     virtual void pTree(int tabLevel = 0) { // replacing debugPrint because it's much more usefulicious
         for (int x = 0; x < tabLevel; x ++) {printf("\t");}
-        printf("For loop over %s with iterator named %s\n", goal, iteratorName);
+        printf("For loop over %s with iterator named %s\n", goal.c_str(), iteratorName.c_str());
         internalObject -> pTree(tabLevel + 1);
     }
 };
@@ -1039,14 +985,8 @@ struct IfStatement : Node {
         Equality,
         Existence
     } mode;
-    union {
-        char* configName;
-        struct { // for equality mode
-            char* oneName;
-            char* twoName;
-        };
-        char* exName;
-    };
+    std::string nOne;
+    std::string nTwo;
 
     Object* mainObject;
     Object* elseObject;
@@ -1057,46 +997,34 @@ struct IfStatement : Node {
         if (hasElse) {
             elseObject -> pushedOut();
         }
-        switch (mode) {
-            case Config:
-                free(configName);
-                break;
-            case Equality:
-                free(oneName);
-                free(twoName);
-                break;
-            case Existence:
-                free(exName);
-                break;
-        };
     }
 
-    void render(int fd, Object* scope, bool dereference) {
+    void render(SitixWriter* out, Object* scope, bool dereference) {
         bool is = false;
         if (mode == Mode::Config) {
             for (const char* configItem : config) {
-                if (strcmp(configItem, configName) == 0) {
+                if (strcmp(configItem, nOne.c_str()) == 0) {
                     is = true;
                     break;
                 }
             }
         }
         else if (mode == Mode::Equality) {
-            Object* one = parent -> lookup(oneName);
+            Object* one = parent -> lookup(nOne);
             if (one == NULL) {
-                one = scope -> lookup(oneName);
+                one = scope -> lookup(nOne);
             }
             if (one == NULL) {
-                printf(ERROR "Can't find %s for an if statement. The output will be malformed.\n", oneName);
+                printf(ERROR "Can't find %s for an if statement. The output will be malformed.\n", nOne.c_str());
                 return;
             }
             one = one -> deghost();
-            Object* two = parent -> lookup(twoName);
+            Object* two = parent -> lookup(nTwo);
             if (two == NULL) {
-                two = scope -> lookup(twoName);
+                two = scope -> lookup(nTwo);
             }
             if (two == NULL) {
-                printf(ERROR "Can't find %s for an if statement. The output will be malformed.\n", twoName);
+                printf(ERROR "Can't find %s for an if statement. The output will be malformed.\n", nTwo.c_str());
                 return;
             }
             two = two -> deghost();
@@ -1113,11 +1041,7 @@ struct IfStatement : Node {
                     if (one -> children[i] -> type == Node::Type::PLAINTEXT) {
                         PlainText* tOne = (PlainText*)(one -> children[i]);
                         PlainText* tTwo = (PlainText*)(two -> children[i]);
-                        if (tOne -> size != tTwo -> size) {
-                            was = false;
-                            break;
-                        }
-                        if (strncmp(tOne -> data, tTwo -> data, tOne -> size) != 0) {
+                        if (tOne -> data != tTwo -> data) {
                             was = false;
                             break;
                         }
@@ -1125,7 +1049,7 @@ struct IfStatement : Node {
                     if (one -> children[i] -> type == Node::Type::TEXTBLOB) {
                         TextBlob* tOne = (TextBlob*)(one -> children[i]);
                         TextBlob* tTwo = (TextBlob*)(two -> children[i]);
-                        if (strcmp(tOne -> data, tTwo -> data) != 0) {
+                        if (tOne -> data != tTwo -> data) {
                             was = false;
                             break;
                         }
@@ -1137,38 +1061,34 @@ struct IfStatement : Node {
             }
         }
         else if (mode == Mode::Existence) {
-            Object* o = scope -> lookup(exName);
+            Object* o = scope -> lookup(nOne);
             if (o == NULL) {
-                o = parent -> lookup(exName);
+                o = parent -> lookup(nOne);
             }
             if (o != NULL) {
                 is = true;
             }
         }
         if (is) {
-            mainObject -> render(fd, scope, true);
+            mainObject -> render(out, scope, true);
         }
         else if (hasElse) {
-            elseObject -> render(fd, scope, true);
+            elseObject -> render(out, scope, true);
         }
     }
 };
 
 
 struct Dereference : Node { // dereference and render an Object (the [^] operator)
-    char* name;
+    std::string name;
 
-    ~Dereference() {
-        free(name);
-    }
-
-    void render(int fd, Object* scope, bool dereference) {
+    void render(SitixWriter* out, Object* scope, bool dereference) {
         Object* found = parent -> lookup(name);
         if (found == NULL) {
             found = scope -> lookup(name);
         }
         if (found == NULL) {
-            printf(ERROR "Couldn't find %s! The output \033[1mwill\033[0m be malformed.\n", name);
+            printf(ERROR "Couldn't find %s! The output \033[1mwill\033[0m be malformed.\n", name.c_str());
             return;
         }
         if (found -> isFile) { // dereferencing file roots copies over all their objects to you immediately
@@ -1185,125 +1105,102 @@ struct Dereference : Node { // dereference and render an Object (the [^] operato
                 }
             }
         }
-        found -> render(fd, parent, true);
+        found -> render(out, parent, true);
     }
 };
 
 
-size_t fillObject(const char* from, size_t length, Object* container, FileFlags* fileflags) { // designed to recurse
+#include "evals.hpp"
+
+
+void fillObject(MapView& map, Object* container, FileFlags* fileflags) { // designed to recurse
     // if length == 0, just run until we hit a closing tag (and then consume the closing tag, for nesting)
     // returns the amount it consumed
-    size_t i = 0;
     bool escape = false;
-    while (i < length || length == 0) { // TODO: backslash escaping (both in tag data and in plaintext data)
-        if (from[i] == '\\' && !escape) {
+    while (map.len() > 0) {
+        if (map[0] == '\\' && !escape) {
             escape = true;
-            i ++;
+            map ++;
         }
-        if (from[i] == '[' && !escape) {
-            i ++;
-            size_t tagStart = i;
-            while (from[i] != ']' && (i < length || length == 0)) {
-                i ++;
-            }
-            char tagOp = from[tagStart];
-            size_t tagDataSize = i - tagStart - 1; // the -1 is because we consumed the first byte, the operation code
-            const char* tagData = from + tagStart + 1; // the +1 is for the same reason as above
-            while (tagData[0] == ' ') {tagData ++;tagDataSize --;} // trim whitespace from the start
-            // god I love C
+        if (map[0] == '[' && !escape) {
+            map ++;
+            MapView tagData = map.consume(']');
+            map ++;
+            char tagOp = tagData[0];
+            tagData ++;
+            tagData.trim(); // trim whitespace from the start
             // note: whitespace *after* the tag data is considered part of the content, but not whitespace *before*.
             if (tagOp == '=') {
                 Object* obj = new Object; // we just created an object with [=]
-                const char* objName = tagData;
-                size_t objNameLength = 0;
-                while (tagData[objNameLength] != ' ' && tagData[objNameLength] != '-') {
-                    objNameLength ++;
+                bool isExt = tagData[-1] == '-';
+                if (isExt) {
+                    tagData.popFront();
                 }
-                if (objNameLength == 1 && objName[0] == '+') { // it's enumerated, an array.
+                MapView objName = tagData.consume(' ');
+                if (objName.len() == 0 && objName[0] == '+') { // it's enumerated, an array.
                     obj -> namingScheme = Object::NamingScheme::Enumerated;
                     obj -> number = container -> highestEnumerated;
                     container -> highestEnumerated ++;
                 }
                 else {
                     obj -> namingScheme = Object::NamingScheme::Named;
-                    obj -> name = truncatn(objName, objNameLength, '.');
+                    obj -> name = objName.toString();
                 }
-                if (tagData[tagDataSize - 1] == '-') {
-                    i += fillObject(from + i + 1, 0, obj, fileflags);
+                if (isExt) {
+                    map ++;
+                    fillObject(map, obj, fileflags);
                 }
                 else {
-                    PlainText* text = new PlainText;
-                    text -> size = tagDataSize - objNameLength - 1; // the -1 and +1 are because of the space
-                    text -> data = tagData + objNameLength + 1;
+                    PlainText* text = new PlainText(tagData + 1);
+                    text -> fileflags = *fileflags;
                     obj -> addChild(text);
                 }
                 obj -> fileflags = *fileflags;
                 container -> addChild(obj);
             }
             else if (tagOp == 'f') {
-                Object* loopObject = new Object;
-                loopObject -> parent = container;
-                ForLoop* loop = new ForLoop;
-                loop -> internalObject = loopObject;
-                const char* goal = tagData;
-                size_t goalLength;
-                for (goalLength = 0; tagData[goalLength] != ' '; goalLength ++);
-                loop -> goal = strdupn(goal, goalLength);
-
-                const char* iteratorName = tagData + goalLength + 1; // consume the goal section and the whitespace
-                size_t iteratorLen = tagDataSize - goalLength - 1;
-                loop -> iteratorName = strdupn(iteratorName, iteratorLen);
-                i += fillObject(from + i + 1, 0, loopObject, fileflags);
-                loop -> fileflags = *fileflags;
-                container -> addChild(loop);
+                container -> addChild(new ForLoop(tagData, map, fileflags));
             }
             else if (tagOp == 'i') {
                 IfStatement* ifs = new IfStatement;
-                const char* ifCommand = tagData;
-                size_t ifCommandLength;
-                for (ifCommandLength = 0; ifCommand[ifCommandLength] != ' '; ifCommandLength ++); // TODO: syntax verification
-                // (this could potentially trigger a catastrophic buffer overflow)
-                if (strncmp(ifCommand, "config", ifCommandLength) == 0) {
-                    const char* configName = tagData + ifCommandLength + 1; // the +1 consumes the space
-                    size_t configNameLen = tagDataSize - ifCommandLength - 1;
+                MapView ifCommand = tagData.consume(' ');
+                tagData ++;
+                if (ifCommand.cmp("config")) {
                     ifs -> mode = IfStatement::Mode::Config;
-                    ifs -> configName = strdupn(configName, configNameLen);
+                    ifs -> nOne = tagData.toString();
                 }
-                else if (strncmp(ifCommand, "equals", ifCommandLength) == 0) {
-                    const char* name1 = tagData + ifCommandLength + 1; // the +1 consumes the space
-                    size_t name1len;
-                    for (name1len = 0; name1[name1len] != ' '; name1len ++);
-                    const char* name2 = name1 + name1len + 1; // the +1 consumes the space... of DOOM
-                    size_t name2len = tagDataSize - ifCommandLength - name1len - 2; // the -2 ignores some spaces... of DOOM
+                else if (ifCommand.cmp("equals")) {
                     ifs -> mode = IfStatement::Mode::Equality;
-                    ifs -> oneName = strdupn(name1, name1len);
-                    ifs -> twoName = strdupn(name2, name2len);
+                    ifs -> nOne = tagData.consume(' ').toString();
+                    tagData ++;
+                    ifs -> nTwo = tagData.toString();
                 }
-                else if (strncmp(ifCommand, "exists", ifCommandLength) == 0) {
-                    const char* exName = tagData + ifCommandLength + 1;
-                    size_t nameLen = tagDataSize - ifCommandLength - 1;
+                else if (ifCommand.cmp("exists")) {
                     ifs -> mode = IfStatement::Mode::Existence;
-                    ifs -> exName = strdupn(exName, nameLen);
+                    ifs -> nOne = tagData.toString();
                 }
                 Object* ifObj = new Object;
                 ifObj -> parent = container;
-                i += fillObject(from + i + 1, 0, ifObj, fileflags);
+                map ++;
+                fillObject(map, ifObj, fileflags);
                 ifs -> mainObject = ifObj;
                 if (wasElse) {
                     ifs -> hasElse = true;
                     Object* elseObj = new Object;
                     elseObj -> parent = container;
-                    i += fillObject(from + i, 0, elseObj, fileflags);
+                    fillObject(map, elseObj, fileflags);
                     ifs -> elseObject = elseObj;
                     wasElse = false;
                 }
                 ifs -> fileflags = *fileflags;
                 container -> addChild(ifs);
             }
-            else if (tagOp == 'e' && length == 0) { // same behavior as /, but it also signals to whoever's calling that it terminated-on-else
-                while (from[i] != ']') {i ++;} // consume at least the closing "]", and anything before it too
+            else if (tagOp == 'e') { // same behavior as /, but it also signals to whoever's calling that it terminated-on-else
                 wasElse = true;
                 break;
+            }
+            else if (tagOp == 'v') {
+                container -> addChild(new EvalsBlob(tagData));
             }
             else if (tagOp == 'd') {
                 DebuggerStatement* debugger = new DebuggerStatement;
@@ -1311,49 +1208,39 @@ size_t fillObject(const char* from, size_t length, Object* container, FileFlags*
             }
             else if (tagOp == '^') {
                 Dereference* d = new Dereference;
-                d -> name = strdupn(tagData, tagDataSize);
+                d -> name = tagData.toString();
                 d -> fileflags = *fileflags;
                 container -> addChild(d);
             }
-            else if (tagOp == '/' && length == 0) { // if we hit a closing tag while length == 0, it's because there's a closing tag no subroutine consumed.
+            else if (tagOp == '/') { // if we hit a closing tag while length == 0, it's because there's a closing tag no subroutine consumed.
                 // if it wasn't already consumed, it's either INVALID or OURS! Assume the latter and break.
-                while (from[i] != ']') {i ++;} // consume at least the closing "]", and anything before it too
                 break; 
             }
             else if (tagOp == '~') {
                 Copier* c = new Copier; // doesn't actually copy, just ghosts
-                const char* targetName = tagData;
-                size_t targetNameLen;
-                for (targetNameLen = 0; targetName[targetNameLen] != ' '; targetNameLen ++);
-                const char* objectName = tagData + targetNameLen + 1;
-                size_t objectNameLength;
-                for (objectNameLength = 0; objectName[objectNameLength] != ']'; objectNameLength ++);
-                c -> target = strdupn(targetName, targetNameLen);
-                c -> object = strdupn(objectName, objectNameLength);
+                c -> target = tagData.consume(' ').toString();
+                tagData ++;
+                c -> object = tagData.toString();
                 container -> addChild(c);
             }
             else if (tagOp == '#') { // update: include will be kept because of the auto-escaping feature, which is nice.
                 //printf(WARNING "The functionality of [#] has been reviewed and it may be deprecated in the near future.\n\tPlease see the Noteboard (https://swaous.asuscomm.com/sitix/pages/noteboard.html) for March 10th, 2024 for more information.\n");
                 Dereference* d = new Dereference;
-                char* unescaped = strdupn(tagData, tagDataSize);
-                d -> name = escapeString(unescaped, '.');
-                free(unescaped);
+                d -> name = escapeString(tagData.toString(), '.');
                 d -> fileflags = *fileflags;
                 container -> addChild(d);
             }
             else if (tagOp == '@') {
-                const char* tagRequest = tagData;
-                size_t tagRequestSize;
-                for (tagRequestSize = 0; tagRequest[tagRequestSize] != ' '; tagRequestSize ++);
-                const char* tagTarget = tagData + tagRequestSize + 1;
-                size_t tagTargetSize = tagDataSize - tagRequestSize - 1;
-                if (strncmp(tagRequest, "on", tagRequestSize) == 0) {
-                    if (strncmp(tagTarget, "minify", tagTargetSize) == 0) {
+                MapView tagRequest = tagData.consume(' ');
+                tagData ++;
+                MapView tagTarget = tagData;
+                if (tagRequest.cmp("on")) {
+                    if (tagTarget.cmp("minify")) {
                         fileflags -> minify = true;
                     }
                 }
-                else if (strncmp(tagRequest, "off", tagRequestSize) == 0) {
-                    if (strncmp(tagTarget, "minify", tagTargetSize) == 0) {
+                else if (tagRequest.cmp("off")) {
+                    if (tagTarget.cmp("minify")) {
                         fileflags -> minify = false;
                     }
                 }
@@ -1362,49 +1249,35 @@ size_t fillObject(const char* from, size_t length, Object* container, FileFlags*
                 printf(WARNING "Unrecognized tag operation %c! Parsing will continue, but the result may be malformed.\n", tagOp);
             }
         }
-        else if (from[i] == ']' && !escape) {
+        else if (map[0] == ']' && !escape) {
             printf(INFO "Unmatched closing bracket detected! This is probably not important; there are several minor interpreter bugs that can cause this without actually breaking anything.\n");
         }
         else {
-            size_t plainStart = i;
-            while ((from[i] != '[' || (from[i - 1] == '\\' && from[i - 2] != '\\')) && (i < length || length == 0)) {
-                if (from[i] == '\\') {
-                    if (from[i + 1] == '\\') {
-                        i ++;
-                    }
-                    break;
-                }
-                i ++;
-            }
-            PlainText* text = new PlainText;
-            text -> size = i - plainStart;
-            i --;
-            text -> data = from + plainStart;
+            PlainText* text = new PlainText(map.consume('['));
             text -> fileflags = *fileflags;
             container -> addChild(text);
         }
         escape = false;
-        i ++;
     }
-    return i + 1; // the +1 consumes whatever byte we closed on
+    map ++; // consume whatever byte we closed on (may eventually be a BUG!)
 }
 
 
-Object* string2object(const char* data, size_t length, FileFlags* flags) {
+Object* string2object(MapView& string, FileFlags* flags) {
     Object* ret = new Object;
     ret -> fileflags = *flags;
-    if (strncmp(data, "[!]", 3) == 0) { // it's a valid Sitix file
-        fillObject(data + 3, length - 3, ret, flags);
+    if (string.cmp("[!]")) { // it's a valid Sitix file
+        string += 3;
+        fillObject(string, ret, flags);
     }
-    else if (strncmp(data, "[?]", 3) == 0) {
-        fillObject(data + 3, length - 3, ret, flags);
+    else if (string.cmp("[?]")) {
+        string += 3;
+        fillObject(string, ret, flags);
         ret -> isTemplate = true;
     }
     else {
-        PlainText* text = new PlainText;
+        PlainText* text = new PlainText(string);
         text -> fileflags = *flags;
-        text -> data = data;
-        text -> size = length;
         ret -> addChild(text);
     }
     return ret;
@@ -1414,36 +1287,21 @@ Object* string2object(const char* data, size_t length, FileFlags* flags) {
 void renderFile(const char* in, const char* out) {
     FileFlags fileflags;
     printf(INFO "Rendering %s to %s.\n", in, out);
-    struct stat buf;
-    stat(in, &buf);
-    size_t size = buf.st_size;
-    if (size == 0) {
-        printf(WARNING "%s has zero size! This file will not be rendered.\n\tIf you absolutely need an empty file there, consider writing a custom script that creates it after invoking Sitix.\n", in);
-        return;
-    }
-    int input = open(in, O_RDONLY);
-    if (input == -1) {
-        printf(ERROR "Couldn't open %s! This file will not be rendered.\n", in);
-        return;
-    }
-    char* inMap = (char*)mmap(0, size, PROT_READ, MAP_SHARED, input, 0); // it can handle obscenely large files because of map_shared
-    if (inMap == MAP_FAILED) {
-        close(input); // housekeeping
-        printf(ERROR "Couldn't memory map %s! This file will not be rendered.\n", in);
-        return;
-    }
+    MapView map(in);
 
-    Object* file = string2object(inMap, size, &fileflags);
+    Object* file = string2object(map, &fileflags);
     file -> namingScheme = Object::NamingScheme::Named;
     file -> name = transmuted(siteDir, "", in);
     file -> isFile = true;
     Object* fNameObj = new Object;
     fNameObj -> virile = false;
     fNameObj -> namingScheme = Object::NamingScheme::Named;
-    fNameObj -> name = strdup("filename");
+    fNameObj -> name = "filename";
     TextBlob* fNameContent = new TextBlob;
-    fNameContent -> data = transmuted(siteDir, "", in);
+    fNameContent -> fileflags = fileflags;
+    fNameContent -> data = transmuted((std::string)siteDir, (std::string)"", (std::string)in);
     fNameObj -> addChild(fNameContent);
+    fNameObj -> fileflags = fileflags;
     file -> addChild(fNameObj);
     if (file -> isTemplate) {
         printf(INFO "%s is marked [?], will not be rendered.\n", in);
@@ -1454,18 +1312,16 @@ void renderFile(const char* in, const char* out) {
         // TODO: inherit permissions from the parent directory by some intelligent strategy so Sitix doesn't accidentally give attackers access to secure information
         // contained in a statically generated website.
         if (output == -1) {
-            close(input); // housekeeping
             printf(ERROR "Couldn't open output file %s (for %s). This file will not be rendered.\n", out, in);
             return;
         }
-        //file -> lookup("tuba");
-        file -> render(output, file, true);
+        FileWriteOutput fOut(output);
+        SitixWriter stream(fOut);
+        file -> pTree();
+        file -> render(&stream, file, true);
         close(output);
     }
     file -> pushedOut();
-    
-    close(input);
-    munmap(inMap, size);
 }
 
 

@@ -1,13 +1,4 @@
-[!][@on minify]
+[?][@on minify]
 [=someproperty Rhubarbtest]
-[=content-]
 Rhubarb
-Filename is [^filename]
-[f tuba i]
-i.filename is [^i.filename]
-    [i equals i __file__]
-        Before: [^i.__before__]
-    [/]
-[/]
-[/]
-[#default.html]
+Filename is [^filename] hello
