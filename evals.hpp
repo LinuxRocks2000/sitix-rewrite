@@ -20,9 +20,7 @@ struct EvalsObject {
 
     virtual std::string toString() = 0;
 
-    virtual bool truthyness() { // things are not "truthy" by default
-        return false;
-    }
+    virtual bool truthyness() = 0;
 };
 
 
@@ -37,6 +35,10 @@ struct ErrorObject : EvalsObject {
 
     std::string toString() {
         return "[ ERROR ]";
+    }
+
+    bool truthyness() {
+        return false;
     }
 };
 
@@ -119,7 +121,7 @@ struct SitixVariableObject : EvalsObject {
 
     SitixVariableObject(Object* obj, Object* sc) {
         scope = sc;
-        content = obj -> deghost();
+        content = obj == NULL ? NULL : obj -> deghost();
         type = Type::SitixVariable;
     }
 
@@ -127,7 +129,7 @@ struct SitixVariableObject : EvalsObject {
         if (content == NULL) {
             return false;
         }
-        if (thing -> type == Type::SitixVariable) {
+        if (thing -> type == Type::SitixVariable && ((SitixVariableObject*)thing) -> content != NULL) {
             auto frend = ((SitixVariableObject*)thing) -> content -> deghost();
             if (frend == content) { // if they point to the same data, they're the same variable
                 return true;
@@ -153,13 +155,16 @@ struct SitixVariableObject : EvalsObject {
     }
 
     std::string toString() {
+        if (content == NULL) {
+            return "";
+        }
         StringWriteOutput out;
         SitixWriter writer(out);
         content -> render(&writer, scope, true);
         return out.content.c_str();
     }
 
-    bool truthy() {
+    bool truthyness() {
         return content != NULL;
     }
 };
@@ -169,13 +174,14 @@ struct EvalsSession {
     Object* parent;
     Object* scope;
 
-    EvalsObject* render(MapView& data) { // all Evals commands produce an EvalsObject, so we can be sure that we'll be returning an EvalsObject
+    EvalsObject* render(MapView data) { // all Evals commands produce an EvalsObject, so we can be sure that we'll be returning an EvalsObject
         std::vector<EvalsObject*> stack;
         while (data.len() > 0) {
             data.trim();
             if (data[0] == '"') {
                 data ++;
-                stack.push_back(new StringObject(data.consume('"').toString()));
+                auto string = data.consume('"').toString();
+                stack.push_back(new StringObject(string));
                 data ++; // actually consume the " (.consume only consumes *up till* the target)
             }
             else if (data[0] >= '0' && data[0] <= '9') {
@@ -213,6 +219,8 @@ struct EvalsSession {
                         EvalsObject* o2 = stack[stack.size() - 1];
                         stack.pop_back();
                         stack.push_back(new BooleanObject(o1 -> equals(o2) || o2 -> equals(o1)));
+                        delete o1;
+                        delete o2;
                     }
                     else {
                         printf(ERROR "Not enough data on stack to check equality!\n");
@@ -220,7 +228,7 @@ struct EvalsSession {
                 }
                 else { // if it's not a symbol, we're going to assume it's a Sitix variable
                     Object* o = parent -> lookup(symbol);
-                    if (o != NULL) {
+                    if (o == NULL) {
                         o = scope -> lookup(symbol);
                     }
                     stack.push_back(new SitixVariableObject(o, scope));
@@ -229,6 +237,7 @@ struct EvalsSession {
         }
         if (stack.size() != 1) {
             printf(ERROR "Bad Evals syntax!\n");
+            printf("\tstack size is %d\n", stack.size());
             return new ErrorObject();
         }
         return stack[0];

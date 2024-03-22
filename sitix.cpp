@@ -144,11 +144,16 @@
 #include "mapview.hpp"
 #include "sitixwriter.hpp"
 
+#define FILLOBJ_EXIT_EOF  0
+#define FILLOBJ_EXIT_ELSE 1
+#define FILLOBJ_EXIT_END  2
+
+struct Object; // forward-dec
 
 const char* outputDir = "output"; // global variables are gross but some of the c standard library higher-order functions I'm using don't support argument passing
 const char* siteDir = "";
-std::vector<const char*> config;
-bool wasElse = false; // This is a very bad solution. Need to make something better.
+
+std::vector<Object*> config;
 
 
 char* strdupn(const char* thing, size_t length) { // copy length bytes of a string to a new, NULL-terminated C string
@@ -311,8 +316,6 @@ std::string transmuted(std::string from, std::string to, std::string path) {
 }
 
 
-struct Object; // forward-dec
-
 
 struct Node { // superclass
     virtual ~Node() {
@@ -390,7 +393,7 @@ struct TextBlob : Node { // designed for smaller, heap-allocated text bits that 
 
 
 Object string2object(const char* data, size_t length); // forward-dec
-void fillObject(MapView& m, Object*, FileFlags*);
+int fillObject(MapView& m, Object*, FileFlags*);
 
 
 struct Object : Node { // Sitix objects contain a list of *nodes*, which can be enumerated (like for array reference), named (for variables), operations, or pure text.
@@ -575,7 +578,14 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
             }
         }
         if (parent == NULL) { // if we ARE the parent
-            // directory unpacks and file unpacks are on the root scope, see
+            // config searches, directory unpacks and file unpacks are on the root scope, see
+            // check config
+            for (Object* cnf : config) {
+                if (cnf -> name == lname) {
+                    return cnf;
+                }
+            }
+            // unpack a directory/file
             struct stat sb;
             char* directoryName = transmuted("", siteDir, root);
             if (stat(directoryName, &sb) == 0) {
@@ -979,28 +989,43 @@ struct ForLoop : Node {
 };
 
 
-struct IfStatement : Node {
-    enum Mode {
-        Config,
-        Equality,
-        Existence
-    } mode;
-    std::string nOne;
-    std::string nTwo;
+#include "evals.hpp"
 
-    Object* mainObject;
-    Object* elseObject;
-    bool hasElse = false;
+
+struct IfStatement : Node {
+    Object* mainObject = new Object;
+    Object* elseObject = NULL;
+
+    MapView evalsCommand;
+
+    IfStatement(MapView& map, MapView command, FileFlags *flags) : evalsCommand(command) {
+        fileflags = *flags;
+        if (fillObject(map, mainObject, flags) == FILLOBJ_EXIT_ELSE) {
+            elseObject = new Object;
+            fillObject(map, elseObject, flags);
+            elseObject -> fileflags = *flags;
+        }
+        mainObject -> fileflags = *flags;
+    }
 
     ~IfStatement() {
         mainObject -> pushedOut();
-        if (hasElse) {
+        if (elseObject != NULL) {
             elseObject -> pushedOut();
         }
     }
 
     void render(SitixWriter* out, Object* scope, bool dereference) {
-        bool is = false;
+        EvalsSession session { parent, scope };
+        EvalsObject* cond = session.render(evalsCommand);
+        if (cond -> truthyness()) {
+            mainObject -> render(out, scope, true);
+        }
+        else if (elseObject != NULL) {
+            elseObject -> render(out, scope, true);
+        }
+        free(cond);
+        /*bool is = false;
         if (mode == Mode::Config) {
             for (const char* configItem : config) {
                 if (strcmp(configItem, nOne.c_str()) == 0) {
@@ -1074,7 +1099,7 @@ struct IfStatement : Node {
         }
         else if (hasElse) {
             elseObject -> render(out, scope, true);
-        }
+        }*/
     }
 };
 
@@ -1110,10 +1135,7 @@ struct Dereference : Node { // dereference and render an Object (the [^] operato
 };
 
 
-#include "evals.hpp"
-
-
-void fillObject(MapView& map, Object* container, FileFlags* fileflags) { // designed to recurse
+int fillObject(MapView& map, Object* container, FileFlags* fileflags) { // designed to recurse
     // if length == 0, just run until we hit a closing tag (and then consume the closing tag, for nesting)
     // returns the amount it consumed
     bool escape = false;
@@ -1161,7 +1183,7 @@ void fillObject(MapView& map, Object* container, FileFlags* fileflags) { // desi
             else if (tagOp == 'f') {
                 container -> addChild(new ForLoop(tagData, map, fileflags));
             }
-            else if (tagOp == 'i') {
+            else if (tagOp == 'i') {/*
                 IfStatement* ifs = new IfStatement;
                 MapView ifCommand = tagData.consume(' ');
                 tagData ++;
@@ -1193,11 +1215,13 @@ void fillObject(MapView& map, Object* container, FileFlags* fileflags) { // desi
                     wasElse = false;
                 }
                 ifs -> fileflags = *fileflags;
-                container -> addChild(ifs);
+                container -> addChild(ifs);*/
+                map ++;
+                container -> addChild(new IfStatement(map, tagData, fileflags));
             }
             else if (tagOp == 'e') { // same behavior as /, but it also signals to whoever's calling that it terminated-on-else
-                wasElse = true;
-                break;
+                map ++;
+                return FILLOBJ_EXIT_ELSE;
             }
             else if (tagOp == 'v') {
                 container -> addChild(new EvalsBlob(tagData));
@@ -1214,7 +1238,8 @@ void fillObject(MapView& map, Object* container, FileFlags* fileflags) { // desi
             }
             else if (tagOp == '/') { // if we hit a closing tag while length == 0, it's because there's a closing tag no subroutine consumed.
                 // if it wasn't already consumed, it's either INVALID or OURS! Assume the latter and break.
-                break; 
+                map ++;
+                return FILLOBJ_EXIT_END;
             }
             else if (tagOp == '~') {
                 Copier* c = new Copier; // doesn't actually copy, just ghosts
@@ -1260,6 +1285,7 @@ void fillObject(MapView& map, Object* container, FileFlags* fileflags) { // desi
         escape = false;
     }
     map ++; // consume whatever byte we closed on (may eventually be a BUG!)
+    return FILLOBJ_EXIT_EOF;
 }
 
 
@@ -1291,7 +1317,7 @@ void renderFile(const char* in, const char* out) {
 
     Object* file = string2object(map, &fileflags);
     file -> namingScheme = Object::NamingScheme::Named;
-    file -> name = transmuted(siteDir, "", in);
+    file -> name = transmuted((std::string)siteDir, (std::string)"", (std::string)in);
     file -> isFile = true;
     Object* fNameObj = new Object;
     fNameObj -> virile = false;
@@ -1317,7 +1343,6 @@ void renderFile(const char* in, const char* out) {
         }
         FileWriteOutput fOut(output);
         SitixWriter stream(fOut);
-        file -> pTree();
         file -> render(&stream, file, true);
         close(output);
     }
@@ -1353,20 +1378,33 @@ int renderTree(const char* fpath, const struct stat* sb, int typeflag, struct FT
 int main(int argc, char** argv) {
     printf("\033[1mSitix v1.0 by Tyler Clarke\033[0m\n");
     bool hasSpecificSitedir = false;
+    bool wasConf = false;
     for (int i = 1; i < argc; i ++) {
         if (strcmp(argv[i], "-o") == 0) {
             i ++;
             outputDir = argv[i];
+            wasConf = false;
         }
         else if (strcmp(argv[i], "-c") == 0) {
             i ++;
-            config.push_back(argv[i]);
+            Object* obj = new Object;
+            obj -> name = argv[i];
+            config.push_back(obj);
+            wasConf = true;
         }
         else if (!hasSpecificSitedir) {
             hasSpecificSitedir = true;
             siteDir = argv[i];
+            wasConf = false;
+        }
+        else if (wasConf) {
+            TextBlob* text = new TextBlob;
+            text -> data = argv[i];
+            config[config.size() - 1] -> addChild(text);
+            wasConf = false;
         }
         else {
+            wasConf = false;
             printf(ERROR "Unexpected argument %s\n", argv[i]);
         }
     }
