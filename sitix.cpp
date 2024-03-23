@@ -1171,7 +1171,7 @@ int fillObject(MapView& map, Object* container, FileFlags* fileflags) { // desig
                     fillObject(map, obj, fileflags);
                 }
                 else {
-                    PlainText* text = new PlainText(tagData + 1);
+                    EvalsBlob* text = new EvalsBlob(tagData + 1);
                     text -> fileflags = *fileflags;
                     obj -> addChild(text);
                 }
