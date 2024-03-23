@@ -21,6 +21,8 @@ struct EvalsObject {
     virtual std::string toString() = 0;
 
     virtual bool truthyness() = 0;
+
+    virtual EvalsObject* copy() = 0;
 };
 
 
@@ -39,6 +41,10 @@ struct ErrorObject : EvalsObject {
 
     bool truthyness() {
         return false;
+    }
+
+    EvalsObject* copy() {
+        return new ErrorObject;
     }
 };
 
@@ -61,6 +67,10 @@ struct StringObject : EvalsObject {
 
     bool truthyness() { // empty strings are falsey, but otherwise strings are always truthy
         return content.size() > 0;
+    }
+
+    EvalsObject* copy() {
+        return new StringObject(content);
     }
 };
 
@@ -87,6 +97,10 @@ struct NumberObject : EvalsObject {
     bool truthyness() {
         return content != 0; // 0 is falsey, everything else is truthy
     }
+
+    EvalsObject* copy() {
+        return new NumberObject(content);
+    }
 };
 
 
@@ -111,6 +125,10 @@ struct BooleanObject : EvalsObject {
 
     bool truthyness() {
         return content;
+    }
+
+    EvalsObject* copy() {
+        return new BooleanObject(content);
     }
 };
 
@@ -166,6 +184,10 @@ struct SitixVariableObject : EvalsObject {
 
     bool truthyness() {
         return content != NULL;
+    }
+
+    EvalsObject* copy() {
+        return new SitixVariableObject(content, scope);
     }
 };
 
@@ -231,6 +253,128 @@ struct EvalsSession {
                     stack.pop_back();
                     stack.push_back(new BooleanObject(!(o -> truthyness())));
                     delete o;
+                }
+                else if (symbol == "concat") {
+                    EvalsObject* o1 = stack[stack.size() - 1];
+                    stack.pop_back();
+                    EvalsObject* o2 = stack[stack.size() - 1];
+                    stack.pop_back();
+                    stack.push_back(new StringObject(o2 -> toString() + o1 -> toString()));
+                    delete o1;
+                    delete o2;
+                }
+                else if (symbol == "strip_fname") { // cut the directories and extension off a filename on the stack. thus it'll go from
+                    // `/root/home/bourgeoisie/test.cpp` to `test` or `/home/test.a.out` to `test.a`.
+                    // this is a convenient minified version of `copy "." count_back slice_left copy "/" count_back slice_right`.
+                    EvalsObject* fname = stack[stack.size() - 1];
+                    stack.pop_back();
+                    std::string name = fname -> toString();
+                    delete fname;
+                    size_t lastSlash = 0;
+                    for (lastSlash = name.size() - 1; lastSlash >= 0; lastSlash --) {
+                        if (name[lastSlash] == '/') {
+                            break;
+                        }
+                    }
+                    size_t lastDot = 0;
+                    for (lastDot = name.size() - 1; lastDot >= 0; lastDot --) {
+                        if (name[lastDot] == '.') {
+                            break;
+                        }
+                    }
+                    stack.push_back(new StringObject(name.substr(lastSlash + 1, lastDot - lastSlash - 1)));
+                }
+                else if (symbol == "copy") {
+                    stack.push_back(stack[stack.size() - 1] -> copy());
+                }
+                else if (symbol == "count_back") { // count from the back of the larger of the top two strings on stack to the highest index that contains the smaller
+                // string *in front of* it, and push that number to the stack.
+                    EvalsObject* o1 = stack[stack.size() - 1];
+                    stack.pop_back();
+                    EvalsObject* o2 = stack[stack.size() - 1];
+                    stack.pop_back();
+                    std::string s1 = o1 -> toString();
+                    std::string s2 = o2 -> toString();
+                    delete o1;
+                    delete o2;
+                    std::string smaller = s1.size() < s2.size() ? s1 : s2;
+                    std::string larger = s1.size() < s2.size() ? s2 : s1;
+                    size_t i;
+                    for (i = larger.size() - 1; i >= smaller.size(); i --) {
+                        bool matches = true;
+                        for (size_t j = 0; j < smaller.size(); j ++) {
+                            if (larger[i - j] != smaller[smaller.size() - j - 1]) {
+                                matches = false;
+                                break;
+                            }
+                        }
+                        if (matches) {
+                            break;
+                        }
+                    }
+                    stack.push_back(new NumberObject(i));
+                }
+                else if (symbol == "slice_left") { // slice a string LEFT at a number. Cuts off that index.
+                    // If you're slicing "hello" at index 3, for instance, you get "hel".
+                    if (stack.size() >= 2) {
+                        EvalsObject* o1 = stack[stack.size() - 1];
+                        stack.pop_back();
+                        EvalsObject* o2 = stack[stack.size() - 1];
+                        stack.pop_back();
+                        double number;
+                        EvalsObject* string;
+                        if (o1 -> type == EvalsObject::Type::Number) {
+                            number = ((NumberObject*)o1) -> content;
+                            string = o2;
+                        }
+                        else if (o2 -> type == EvalsObject::Type::Number) {
+                            number = ((NumberObject*)o2) -> content;
+                            string = o1;
+                        }
+                        else {
+                            printf(ERROR "Can't slice left: insufficient information on stack\n");
+                            break;
+                        }
+                        std::string s = string -> toString();
+                        stack.push_back(new StringObject(s.substr(0, (size_t)number)));
+                        delete o1;
+                        delete o2;
+                    }
+                    else {
+                        printf(ERROR "Can't slice left: insufficient information on stack\n");
+                        break;
+                    }
+                }
+                else if (symbol == "slice_right") { // slice a string RIGHT at a number. Cuts off that index.
+                    // if you're slicing "helloworld" right at index 3, you get "oworld".
+                    if (stack.size() >= 2) {
+                        EvalsObject* o1 = stack[stack.size() - 1];
+                        stack.pop_back();
+                        EvalsObject* o2 = stack[stack.size() - 1];
+                        stack.pop_back();
+                        double number;
+                        EvalsObject* string;
+                        if (o1 -> type == EvalsObject::Type::Number) {
+                            number = ((NumberObject*)o1) -> content;
+                            string = o2;
+                        }
+                        else if (o2 -> type == EvalsObject::Type::Number) {
+                            number = ((NumberObject*)o2) -> content;
+                            string = o1;
+                        }
+                        else {
+                            printf(ERROR "Can't slice left: insufficient information on stack\n");
+                            break;
+                        }
+                        std::string s = string -> toString();
+                        stack.push_back(new StringObject(s.substr((size_t)number + 1, s.size())));
+                        delete o1;
+                        delete o2;
+                    }
+                    else {
+                        printf(ERROR "Can't slice left: insufficient information on stack\n");
+                        break;
+                    }
                 }
                 else if (symbol == "true") {
                     stack.push_back(new BooleanObject(true));

@@ -1,4 +1,8 @@
 /* Sitix, by Tyler Clarke
+
+    NOTE: This comment covers basic Sitix. It doesn't delve into Evals or Sitix Markdown or the nuances of ghost-directives. Also, most of the bits on
+    if statements are outdated. For up-to-date information, see the Usage page at https://swaous.asuscomm.com/sitix.
+
     An efficient templating engine written in C++, meant to reduce the pain of web development.
     Sitix templating is optional; files that desire Sitix templating should include [!] as the first three bytes. Otherwise, sitix will simply copy them.
     Files may also use [?] as the first three bytes; this informs the Sitix engine that the file should not be rendered (most templates will use this).
@@ -189,6 +193,30 @@ char* strip(const char* thing, char trigger) { // clears all instances of a symb
         truePos ++;
     }
     return ret;
+}
+
+
+void mkdirR(std::string filename) { // recursively create the directories before a file
+    // expects syntax like directory/directory/directory/file or directory/directory/directory/. directory/directory/directory is not supported.
+    struct stat sb;
+    size_t blobend = 0;
+    while (blobend < filename.size()) {
+        if (filename[blobend] == '/') {
+            std::string dirname = filename.substr(0, blobend);
+            if (stat(dirname.c_str(), &sb) == -1) {
+                if (mkdir(dirname.c_str(), 0) != 0) {
+                    printf(ERROR "Couldn't create %s!\n", dirname.c_str());
+                    perror("\tmkdir");
+                }
+                chmod(dirname.c_str(), 0755);
+            }
+            else if (!S_ISDIR(sb.st_mode)) {
+                printf(ERROR "%s exists and is not a directory. Aborting recursive mkdir operation.\n", dirname.c_str());
+                return;
+            }
+        }
+        blobend++;
+    }
 }
 
 
@@ -1037,6 +1065,43 @@ struct IfStatement : Node {
 };
 
 
+struct RedirectorStatement : Node {
+    Object* object;
+    MapView evalsCommand;
+
+    ~RedirectorStatement() {
+        object -> pushedOut();
+    }
+
+    RedirectorStatement(MapView& map, MapView command, FileFlags* flags) : evalsCommand(command) {
+        object = new Object;
+        object -> fileflags = *flags;
+        fileflags = *flags;
+        fillObject(map, object, flags);
+    }
+
+    void attachToParent(Object* p) {
+        object -> parent = p;
+    }
+
+    void render(SitixWriter*, Object* scope, bool dereference) {
+        EvalsSession session { parent, scope };
+        EvalsObject* result = session.render(evalsCommand);
+        std::string filename = transmuted("", (std::string)outputDir, result -> toString());
+        delete result;
+        mkdirR(filename);
+        int fd = open(filename.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666);
+        if (fd == -1) {
+            printf(ERROR "Couldn't create %s for a redirect!\n", filename.c_str());
+        }
+        FileWriteOutput file(fd);
+        SitixWriter writer(file);
+        object -> render(&writer, scope, true);
+        close(fd);
+    }
+};
+
+
 struct Dereference : Node { // dereference and render an Object (the [^] operator)
     std::string name;
 
@@ -1130,6 +1195,9 @@ int fillObject(MapView& map, Object* container, FileFlags* fileflags) { // desig
             else if (tagOp == 'd') {
                 container -> addChild(new DebuggerStatement);
             }
+            else if (tagOp == '>') {
+                container -> addChild(new RedirectorStatement(map, tagData, fileflags));
+            }
             else if (tagOp == '^') {
                 Dereference* d = new Dereference;
                 d -> name = tagData.toString();
@@ -1165,7 +1233,6 @@ int fillObject(MapView& map, Object* container, FileFlags* fileflags) { // desig
                     }
                     else if (tagTarget.cmp("markdown")) {
                         fileflags -> markdown = true;
-                        printf("markdown ON\n");
                     }
                 }
                 else if (tagRequest.cmp("off")) {
