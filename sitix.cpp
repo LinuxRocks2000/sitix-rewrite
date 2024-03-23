@@ -1163,10 +1163,17 @@ int fillObject(MapView& map, Object* container, FileFlags* fileflags) { // desig
                     if (tagTarget.cmp("minify")) {
                         fileflags -> minify = true;
                     }
+                    else if (tagTarget.cmp("markdown")) {
+                        fileflags -> markdown = true;
+                        printf("markdown ON\n");
+                    }
                 }
                 else if (tagRequest.cmp("off")) {
                     if (tagTarget.cmp("minify")) {
                         fileflags -> minify = false;
+                    }
+                    else if (tagTarget.cmp("markdown")) {
+                        fileflags -> markdown = false;
                     }
                 }
             }
