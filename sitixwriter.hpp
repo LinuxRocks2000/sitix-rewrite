@@ -154,6 +154,20 @@ struct SitixWriter {
                 markdownState.strikethrough = !markdownState.strikethrough;
                 i += 2;
             }
+            else if (data[i] == '`') {
+                if (i > chunk) {
+                    write(data + chunk, to - chunk);
+                    chunk = i;
+                }
+                if (markdownState.code) {
+                    write("</code>", 7);
+                }
+                else {
+                    write("<code>", 6);
+                }
+                markdownState.code = !markdownState.code;
+                i ++;
+            }
             else if (data[i] == '\n') {
                 if (i > chunk) {
                     write(data + chunk, to - chunk);
