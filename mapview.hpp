@@ -28,19 +28,22 @@ public:
         if (file == -1) {
             printf(ERROR "Can't open %s for memory mapping!\n", filename);
             perror("\topen");
-            ((MapView*)0) -> isValid();
             return;
         }
         struct stat sb;
         if (stat(filename, &sb)) {
-            printf(ERROR "Can't load %s for memory mapping!\n");
+            printf(ERROR "Can't load %s for memory mapping!\n", filename);
             perror("\tstat");
+            return;
+        }
+        if (sb.st_size == 0) {
+            printf(WARNING "%s has zero size and will not be rendered.\n\tIf you absolutely need an empty file there, consider writing a script to `touch` it in after Sitix builds.\n", filename);
             return;
         }
         map = (char*)mmap(0, sb.st_size, PROT_READ, MAP_SHARED, file, 0);
         if (map == MAP_FAILED) {
             map = NULL;
-            printf(ERROR "Can't load %s for memory mapping!\n");
+            printf(ERROR "Can't load %s for memory mapping!\n", filename);
             perror("\tmmap");
             return;
         }
@@ -140,18 +143,20 @@ public:
         return (map + start);
     }
 
-    MapView consume(char until, bool doesEscape = true) { // consume bytes until one of them is until (allows escaping by default)
+    MapView consume(char until, bool escapeState = false, bool doesEscape = true) { // consume bytes until one of them is until (allows escaping by default)
         // return the consumed bytes as a child MapView
+        // escapeState allows the caller to determine if the first byte is considered to be escaped or not (useful if there's a "master" escape count)
         MapView ret = *this;
-        bool escape = false;
         while (len() > 0) {
-            if (map[start] == '\\' && doesEscape && !escape) {
-                escape = true;
+            if (map[start] == '\\' && doesEscape && !escapeState) {
+                escapeState = true;
+                map ++;
                 continue;
             }
-            else if (map[start] == until && !escape) {
+            else if (map[start] == until && !escapeState) {
                 break;
             }
+            escapeState = false;
             start ++;
         }
         ret.end = start;

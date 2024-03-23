@@ -1025,81 +1025,6 @@ struct IfStatement : Node {
             elseObject -> render(out, scope, true);
         }
         free(cond);
-        /*bool is = false;
-        if (mode == Mode::Config) {
-            for (const char* configItem : config) {
-                if (strcmp(configItem, nOne.c_str()) == 0) {
-                    is = true;
-                    break;
-                }
-            }
-        }
-        else if (mode == Mode::Equality) {
-            Object* one = parent -> lookup(nOne);
-            if (one == NULL) {
-                one = scope -> lookup(nOne);
-            }
-            if (one == NULL) {
-                printf(ERROR "Can't find %s for an if statement. The output will be malformed.\n", nOne.c_str());
-                return;
-            }
-            one = one -> deghost();
-            Object* two = parent -> lookup(nTwo);
-            if (two == NULL) {
-                two = scope -> lookup(nTwo);
-            }
-            if (two == NULL) {
-                printf(ERROR "Can't find %s for an if statement. The output will be malformed.\n", nTwo.c_str());
-                return;
-            }
-            two = two -> deghost();
-            if (one == two) { // if the pointers are the same
-                is = true;
-            }
-            else if (one -> children.size() == two -> children.size()) {
-                bool was = true;
-                for (size_t i = 0; i < one -> children.size(); i ++) {
-                    if (one -> children[i] -> type != two -> children[i] -> type) {
-                        was = false;
-                        break;
-                    }
-                    if (one -> children[i] -> type == Node::Type::PLAINTEXT) {
-                        PlainText* tOne = (PlainText*)(one -> children[i]);
-                        PlainText* tTwo = (PlainText*)(two -> children[i]);
-                        if (tOne -> data != tTwo -> data) {
-                            was = false;
-                            break;
-                        }
-                    }
-                    if (one -> children[i] -> type == Node::Type::TEXTBLOB) {
-                        TextBlob* tOne = (TextBlob*)(one -> children[i]);
-                        TextBlob* tTwo = (TextBlob*)(two -> children[i]);
-                        if (tOne -> data != tTwo -> data) {
-                            was = false;
-                            break;
-                        }
-                    }
-                }
-                if (was) {
-                    is = true;
-                }
-            }
-        }
-        else if (mode == Mode::Existence) {
-            Object* o = scope -> lookup(nOne);
-            if (o == NULL) {
-                o = parent -> lookup(nOne);
-            }
-            if (o != NULL) {
-                is = true;
-            }
-        }
-        if (is) {
-            mainObject -> render(out, scope, true);
-        }
-        else if (hasElse) {
-            elseObject -> render(out, scope, true);
-        }*/
     }
 };
 
@@ -1183,39 +1108,7 @@ int fillObject(MapView& map, Object* container, FileFlags* fileflags) { // desig
             else if (tagOp == 'f') {
                 container -> addChild(new ForLoop(tagData, map, fileflags));
             }
-            else if (tagOp == 'i') {/*
-                IfStatement* ifs = new IfStatement;
-                MapView ifCommand = tagData.consume(' ');
-                tagData ++;
-                if (ifCommand.cmp("config")) {
-                    ifs -> mode = IfStatement::Mode::Config;
-                    ifs -> nOne = tagData.toString();
-                }
-                else if (ifCommand.cmp("equals")) {
-                    ifs -> mode = IfStatement::Mode::Equality;
-                    ifs -> nOne = tagData.consume(' ').toString();
-                    tagData ++;
-                    ifs -> nTwo = tagData.toString();
-                }
-                else if (ifCommand.cmp("exists")) {
-                    ifs -> mode = IfStatement::Mode::Existence;
-                    ifs -> nOne = tagData.toString();
-                }
-                Object* ifObj = new Object;
-                ifObj -> parent = container;
-                map ++;
-                fillObject(map, ifObj, fileflags);
-                ifs -> mainObject = ifObj;
-                if (wasElse) {
-                    ifs -> hasElse = true;
-                    Object* elseObj = new Object;
-                    elseObj -> parent = container;
-                    fillObject(map, elseObj, fileflags);
-                    ifs -> elseObject = elseObj;
-                    wasElse = false;
-                }
-                ifs -> fileflags = *fileflags;
-                container -> addChild(ifs);*/
+            else if (tagOp == 'i') {
                 map ++;
                 container -> addChild(new IfStatement(map, tagData, fileflags));
             }
@@ -1227,8 +1120,7 @@ int fillObject(MapView& map, Object* container, FileFlags* fileflags) { // desig
                 container -> addChild(new EvalsBlob(tagData));
             }
             else if (tagOp == 'd') {
-                DebuggerStatement* debugger = new DebuggerStatement;
-                container -> addChild(debugger);
+                container -> addChild(new DebuggerStatement);
             }
             else if (tagOp == '^') {
                 Dereference* d = new Dereference;
@@ -1278,7 +1170,7 @@ int fillObject(MapView& map, Object* container, FileFlags* fileflags) { // desig
             printf(INFO "Unmatched closing bracket detected! This is probably not important; there are several minor interpreter bugs that can cause this without actually breaking anything.\n");
         }
         else {
-            PlainText* text = new PlainText(map.consume('['));
+            PlainText* text = new PlainText(map.consume('[', escape));
             text -> fileflags = *fileflags;
             container -> addChild(text);
         }
@@ -1314,39 +1206,40 @@ void renderFile(const char* in, const char* out) {
     FileFlags fileflags;
     printf(INFO "Rendering %s to %s.\n", in, out);
     MapView map(in);
-
-    Object* file = string2object(map, &fileflags);
-    file -> namingScheme = Object::NamingScheme::Named;
-    file -> name = transmuted((std::string)siteDir, (std::string)"", (std::string)in);
-    file -> isFile = true;
-    Object* fNameObj = new Object;
-    fNameObj -> virile = false;
-    fNameObj -> namingScheme = Object::NamingScheme::Named;
-    fNameObj -> name = "filename";
-    TextBlob* fNameContent = new TextBlob;
-    fNameContent -> fileflags = fileflags;
-    fNameContent -> data = transmuted((std::string)siteDir, (std::string)"", (std::string)in);
-    fNameObj -> addChild(fNameContent);
-    fNameObj -> fileflags = fileflags;
-    file -> addChild(fNameObj);
-    if (file -> isTemplate) {
-        printf(INFO "%s is marked [?], will not be rendered.\n", in);
-        printf("\tIf this file should be rendered, replace [?] with [!] in the header.\n");
-    }
-    else {
-        int output = open(out, O_WRONLY | O_CREAT | O_TRUNC, 0666); // rw for anyone, it's not a protected file (this may lead to security vulnerabilities in the future)
-        // TODO: inherit permissions from the parent directory by some intelligent strategy so Sitix doesn't accidentally give attackers access to secure information
-        // contained in a statically generated website.
-        if (output == -1) {
-            printf(ERROR "Couldn't open output file %s (for %s). This file will not be rendered.\n", out, in);
-            return;
+    if (map.isValid()) {
+        Object* file = string2object(map, &fileflags);
+        file -> namingScheme = Object::NamingScheme::Named;
+        file -> name = transmuted((std::string)siteDir, (std::string)"", (std::string)in);
+        file -> isFile = true;
+        Object* fNameObj = new Object;
+        fNameObj -> virile = false;
+        fNameObj -> namingScheme = Object::NamingScheme::Named;
+        fNameObj -> name = "filename";
+        TextBlob* fNameContent = new TextBlob;
+        fNameContent -> fileflags = fileflags;
+        fNameContent -> data = transmuted((std::string)siteDir, (std::string)"", (std::string)in);
+        fNameObj -> addChild(fNameContent);
+        fNameObj -> fileflags = fileflags;
+        file -> addChild(fNameObj);
+        if (file -> isTemplate) {
+            printf(INFO "%s is marked [?], will not be rendered.\n", in);
+            printf("\tIf this file should be rendered, replace [?] with [!] in the header.\n");
         }
-        FileWriteOutput fOut(output);
-        SitixWriter stream(fOut);
-        file -> render(&stream, file, true);
-        close(output);
+        else {
+            int output = open(out, O_WRONLY | O_CREAT | O_TRUNC, 0666); // rw for anyone, it's not a protected file (this may lead to security vulnerabilities in the future)
+            // TODO: inherit permissions from the parent directory by some intelligent strategy so Sitix doesn't accidentally give attackers access to secure information
+            // contained in a statically generated website.
+            if (output == -1) {
+                printf(ERROR "Couldn't open output file %s (for %s). This file will not be rendered.\n", out, in);
+                return;
+            }
+            FileWriteOutput fOut(output);
+            SitixWriter stream(fOut);
+            file -> render(&stream, file, true);
+            close(output);
+        }
+        file -> pushedOut();
     }
-    file -> pushedOut();
 }
 
 
@@ -1376,7 +1269,7 @@ int renderTree(const char* fpath, const struct stat* sb, int typeflag, struct FT
 }
 
 int main(int argc, char** argv) {
-    printf("\033[1mSitix v1.0 by Tyler Clarke\033[0m\n");
+    printf("\033[1mSitix v2.0 by Tyler Clarke\033[0m\n");
     bool hasSpecificSitedir = false;
     bool wasConf = false;
     for (int i = 1; i < argc; i ++) {

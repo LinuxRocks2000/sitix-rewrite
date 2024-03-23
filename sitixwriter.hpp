@@ -87,8 +87,14 @@ struct SitixWriter {
         if (flags.minify) {
             minifyWrite(data, length);
         }
-        else {
-            output.write(data, length);
+        else { // final step: unescape escaped things
+            size_t i = 0;
+            while (i < length) {
+                size_t chunk = i;
+                while (data[i] != '\\' && i < length) { i ++; }
+                output.write(data + chunk, i - chunk);
+                i ++;
+            }
         }
     }
 
