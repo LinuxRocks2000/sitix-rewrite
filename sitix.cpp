@@ -664,6 +664,7 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
                     }
                     else {
                         PlainText* content = new PlainText(map);
+                        content -> fileflags.sitix = false;
                         fileObj -> addChild(content);
                     }
                     addChild(fileObj); // since we're the global scope, we should add the file to us.
@@ -1008,6 +1009,13 @@ struct IfStatement : Node {
         mainObject -> fileflags = *flags;
     }
 
+    void attachToParent(Object* p) { 
+        if (elseObject != NULL) {
+            elseObject -> parent = p;
+        }
+        mainObject -> parent = p;
+    }
+
     ~IfStatement() {
         mainObject -> pushedOut();
         if (elseObject != NULL) {
@@ -1084,7 +1092,7 @@ int fillObject(MapView& map, Object* container, FileFlags* fileflags) { // desig
                     tagData.popFront();
                 }
                 MapView objName = tagData.consume(' ');
-                if (objName.len() == 0 && objName[0] == '+') { // it's enumerated, an array.
+                if (objName.len() == 1 && objName[0] == '+') { // it's enumerated, an array.
                     obj -> namingScheme = Object::NamingScheme::Enumerated;
                     obj -> number = container -> highestEnumerated;
                     container -> highestEnumerated ++;
@@ -1194,6 +1202,7 @@ Object* string2object(MapView& string, FileFlags* flags) {
         ret -> isTemplate = true;
     }
     else {
+        flags -> sitix = false;
         PlainText* text = new PlainText(string);
         text -> fileflags = *flags;
         ret -> addChild(text);

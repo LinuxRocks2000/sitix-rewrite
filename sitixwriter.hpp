@@ -48,31 +48,27 @@ struct SitixWriter {
         // we're using write rather than ::write because we want to be able to nest them (add a markdown processor to the mix)
         // eventually we should probably come up with a more object-oriented way to handle this, but for now I think it's probably fine
         size_t i = 0;
-        size_t chunkStart = 0;
         if (length == 0) {
             return;
         }
         while (i < length) {
             if (isWhitespace(data[i])) {
-                if (minifyState) {
-                    i ++;
-                    minifyState = false;
-                }
-                if (i > chunkStart) {
-                    write(data + chunkStart, i - chunkStart);
-                }
                 while (isWhitespace(data[i]) && i < length) {
                     i ++;
                 }
-                chunkStart = i;
+                if (minifyState) {
+                    minifyState = false;
+                    write(" ", 1);
+                }
             }
             else {
+                size_t chunkStart = i;
+                while (!isWhitespace(data[i]) && i < length) {
+                    i ++;
+                }
+                write(data + chunkStart, i - chunkStart);
                 minifyState = true;
             }
-            i ++;
-        }
-        if (chunkStart < i && i <= length) {
-            write(data + chunkStart, i - chunkStart);
         }
     }
 
@@ -87,14 +83,22 @@ struct SitixWriter {
         if (flags.minify) {
             minifyWrite(data, length);
         }
-        else { // final step: unescape escaped things
+        else if (flags.sitix) { // strips out backslashes
             size_t i = 0;
+            size_t chunk = 0;
             while (i < length) {
-                size_t chunk = i;
-                while (data[i] != '\\' && i < length) { i ++; }
-                output.write(data + chunk, i - chunk);
-                i ++;
+                chunk = i;
+                while (data[i] != '\\' && i < length) { i ++; } // i is now on a backslash
+                output.write(data + chunk, i - chunk); // write everything up till the backslash
+                if (data[i] == '\\') {
+                    i ++;
+                    output.write(data + i, 1);
+                    i ++;
+                }
             }
+        }
+        else {
+            output.write(data, length);
         }
     }
 

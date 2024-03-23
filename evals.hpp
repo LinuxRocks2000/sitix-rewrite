@@ -226,6 +226,18 @@ struct EvalsSession {
                         printf(ERROR "Not enough data on stack to check equality!\n");
                     }
                 }
+                else if (symbol == "not") {
+                    EvalsObject* o = stack[stack.size() - 1];
+                    stack.pop_back();
+                    stack.push_back(new BooleanObject(!(o -> truthyness())));
+                    delete o;
+                }
+                else if (symbol == "true") {
+                    stack.push_back(new BooleanObject(true));
+                }
+                else if (symbol == "false") {
+                    stack.push_back(new BooleanObject(false));
+                }
                 else { // if it's not a symbol, we're going to assume it's a Sitix variable
                     Object* o = parent -> lookup(symbol);
                     if (o == NULL) {

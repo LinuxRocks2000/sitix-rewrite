@@ -150,7 +150,7 @@ public:
         while (len() > 0) {
             if (map[start] == '\\' && doesEscape && !escapeState) {
                 escapeState = true;
-                map ++;
+                start ++;
                 continue;
             }
             else if (map[start] == until && !escapeState) {
