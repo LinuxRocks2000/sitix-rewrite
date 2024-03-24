@@ -261,19 +261,30 @@ bool isNumber(const char* data) {
     size_t s = strlen(data);
     for (size_t i = 0; i < s; i ++) {
         if (data[i] < '0' || data[i] > '9') {
-            return false;
+            if (data[i] != '-') {
+                return false;
+            }
         }
     }
     return true;
 }
 
 
-uint32_t toNumber(const char* data) {
-    uint32_t ret = 0;
+uint32_t toNumber(const char* data, size_t about) {
+    int32_t ret = 0;
     size_t s = strlen(data);
     for (size_t i = 0; i < s; i ++) {
         ret *= 10;
         ret += data[i] - '0';
+    }
+    if (data[0] == '-') {
+        ret *= -1;
+    }
+    while (ret < 0) {
+        ret += about;
+    }
+    while (ret > about) {
+        ret -= about;
     }
     return ret;
 }
@@ -734,7 +745,7 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
             if (child -> type == Node::Type::OBJECT) {
                 Object* candidate = (Object*)child;
                 if (isNumber(mSeg)) {
-                    if (candidate -> namingScheme == Object::NamingScheme::Enumerated && toNumber(mSeg) == candidate -> number) {
+                    if (candidate -> namingScheme == Object::NamingScheme::Enumerated && toNumber(mSeg, highestEnumerated) == candidate -> number) {
                         ::free(mSeg);
                         if (segLen == nameLen) {
                             return candidate;
