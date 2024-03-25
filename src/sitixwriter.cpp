@@ -12,6 +12,16 @@ void FileWriteOutput::write(const char* data, size_t length) {
     ::write(file, data, length);
 }
 
+FileWriteOutput::~FileWriteOutput() {
+    if (!move) { // allow this file descriptor to be moved into another FileWriteOutput without being closed.
+        ::close(file);
+    }
+}
+
+FileWriteOutput::FileWriteOutput(FileWriteOutput& f) {
+    file = f.file;
+    f.move = true;
+}
 
 void StringWriteOutput::write(const char* data, size_t length) {
     content += std::string(data, length);

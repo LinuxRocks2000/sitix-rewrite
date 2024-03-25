@@ -13,8 +13,13 @@ struct WriteOutput {
 
 struct FileWriteOutput : WriteOutput {
     int file;
+    bool move = false;
+
+    FileWriteOutput(FileWriteOutput& f);
 
     FileWriteOutput(int fd);
+
+    ~FileWriteOutput(); // Destructing a FileWriteOutput WILL close the file.
 
     void write(const char* data, size_t length);
 };

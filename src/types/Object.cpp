@@ -287,75 +287,78 @@ Object* Object::childSearchUp(const char* name, Object* context) { // name is ex
     char* mSeg = (char*)malloc(segLen + 1);
     mSeg[segLen] = 0;
     memcpy(mSeg, name, segLen);
-    for (Node* child : children) {
-        if (child -> type == Node::Type::OBJECT) {
-            Object* candidate = (Object*)child;
-            if (isNumber(mSeg)) {
-                if (candidate -> namingScheme == Object::NamingScheme::Enumerated && toNumber(mSeg, highestEnumerated) == candidate -> number) {
+    if (strcmp(mSeg, "__before__") == 0) {
+        printf("BEFORE\n");
+        Object* last = NULL;
+        for (Node* n : context -> children) {
+            if (n -> type == Node::Type::OBJECT) {
+                Object* candidate = (Object*)n;
+                if (candidate -> ptrEquals(this)) {
+                    break;
+                }
+                else if (candidate -> namingScheme == NamingScheme::Enumerated) {
+                    last = candidate;
+                }
+            }
+        }
+        if (segLen == nameLen) { // if we're the last requested entry
+            return last;
+        }
+        else if (last != NULL) {
+            return last -> childSearchUp(name + segLen + 1);
+        }
+        else {
+            return NULL;
+        }
+    }
+    else if (strcmp(mSeg, "__after__") == 0) {
+        Object* next = NULL;
+        bool goin = false;
+        for (Node* n : context -> children) {
+            if (n -> type == Node::Type::OBJECT) {
+                Object* candidate = (Object*)n;
+                if (candidate -> ptrEquals(this)) {
+                    goin = true;
+                }
+                else if (goin && candidate -> namingScheme == NamingScheme::Enumerated) {
+                    next = candidate;
+                    break;
+                }
+            }
+        }
+        if (segLen == nameLen) { // if we're the last requested entry
+            return next;
+        }
+        else if (next != NULL) {
+            return next -> childSearchUp(name + segLen + 1);
+        }
+        else {
+            return NULL;
+        }
+    }
+    else {
+        for (Node* child : children) {
+            if (child -> type == Node::Type::OBJECT) {
+                Object* candidate = (Object*)child;
+                if (isNumber(mSeg)) {
+                    if (candidate -> namingScheme == Object::NamingScheme::Enumerated && toNumber(mSeg, highestEnumerated) == candidate -> number) {
+                        ::free(mSeg);
+                        if (segLen == nameLen) {
+                            return candidate;
+                        }
+                        else {
+                            return candidate -> childSearchUp(name + segLen + 1);
+                        }
+                    }
+                }
+                else if (candidate -> namingScheme == Object::NamingScheme::Named && strcmp(candidate -> name.c_str(), mSeg) == 0) {
                     ::free(mSeg);
                     if (segLen == nameLen) {
                         return candidate;
                     }
                     else {
-                        return candidate -> childSearchUp(name + segLen + 1);
+                        return candidate -> childSearchUp(name + segLen + 1); // the +1 is to consume the '.'
                     }
-                }
-            }
-            else if (strcmp(mSeg, "__before__") == 0) {
-                Object* last = NULL;
-                for (Node* n : context -> children) {
-                    if (n -> type == Node::Type::OBJECT) {
-                        Object* candidate = (Object*)n;
-                        if (candidate -> ptrEquals(this)) {
-                            break;
-                        }
-                        else if (candidate -> namingScheme == NamingScheme::Enumerated) {
-                            last = candidate;
-                        }
-                    }
-                }
-                if (segLen == nameLen) { // if we're the last requested entry
-                    return last;
-                }
-                else if (last != NULL) {
-                    return last -> childSearchUp(name + segLen + 1);
-                }
-                else {
-                    return NULL;
-                }
-            }
-            else if (strcmp(mSeg, "__after__") == 0) {
-                Object* next = NULL;
-                bool goin = false;
-                for (Node* n : context -> children) {
-                    if (n -> type == Node::Type::OBJECT) {
-                        Object* candidate = (Object*)n;
-                        if (candidate -> ptrEquals(this)) {
-                            goin = true;
-                        }
-                        else if (goin && candidate -> namingScheme == NamingScheme::Enumerated) {
-                            next = candidate;
-                            break;
-                        }
-                    }
-                }
-                if (segLen == nameLen) { // if we're the last requested entry
-                    return next;
-                }
-                else if (next != NULL) {
-                    return next -> childSearchUp(name + segLen + 1);
-                }
-                else {
-                    return NULL;
-                }
-            }
-            else if (candidate -> namingScheme == Object::NamingScheme::Named && strcmp(candidate -> name.c_str(), mSeg) == 0) {
-                ::free(mSeg);
-                if (segLen == nameLen) {
-                    return candidate;
-                }
-                else {
-                    return candidate -> childSearchUp(name + segLen + 1); // the +1 is to consume the '.'
                 }
             }
         }
