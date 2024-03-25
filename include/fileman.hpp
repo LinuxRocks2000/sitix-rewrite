@@ -10,6 +10,7 @@
 class FileMan {
     std::string dir;
     std::map<std::string, MapView> maps;
+    bool valid = true;
 
 public:
     FileMan(std::string rdir); // construct the Fileman to manage the directory referenced by rdir.

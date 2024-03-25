@@ -115,8 +115,10 @@ uint32_t toNumber(const char* data, size_t about) {
     int32_t ret = 0;
     size_t s = strlen(data);
     for (size_t i = 0; i < s; i ++) {
-        ret *= 10;
-        ret += data[i] - '0';
+        if (data[i] != '-') {
+            ret *= 10;
+            ret += data[i] - '0';
+        }
     }
     if (data[0] == '-') {
         ret *= -1;
