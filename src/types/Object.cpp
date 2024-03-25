@@ -273,10 +273,8 @@ Object* Object::lookup(std::string& lname, Object* nope) { // lookup variant tha
 Object* Object::childSearchUp(const char* lname) { // name is expected to be a . separated
     Object* context = parent;
     if (ghost != NULL) {
-        printf("deferred\n");
         return ghost -> childSearchUp(lname);
     }
-    printf("child searching in %s\n", name.c_str());
     size_t nameLen = strlen(lname);
     size_t segLen;
     for (segLen = 0; segLen < nameLen; segLen ++) {
