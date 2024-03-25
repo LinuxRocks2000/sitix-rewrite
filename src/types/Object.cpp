@@ -270,25 +270,24 @@ Object* Object::lookup(std::string& lname, Object* nope) { // lookup variant tha
     return NULL;
 }
 
-Object* Object::childSearchUp(const char* name, Object* context) { // name is expected to be a . separated 
-    if (context == NULL) {
-        context = parent;
-    }
+Object* Object::childSearchUp(const char* lname) { // name is expected to be a . separated
+    Object* context = parent;
     if (ghost != NULL) {
-        return ghost -> childSearchUp(name, parent);
+        printf("deferred\n");
+        return ghost -> childSearchUp(lname);
     }
-    size_t nameLen = strlen(name);
+    printf("child searching in %s\n", name.c_str());
+    size_t nameLen = strlen(lname);
     size_t segLen;
     for (segLen = 0; segLen < nameLen; segLen ++) {
-        if (name[segLen] == '.' && name[segLen - 1] != '\\') {
+        if (lname[segLen] == '.' && lname[segLen - 1] != '\\') {
             break;
         }
     }
     char* mSeg = (char*)malloc(segLen + 1);
     mSeg[segLen] = 0;
-    memcpy(mSeg, name, segLen);
+    memcpy(mSeg, lname, segLen);
     if (strcmp(mSeg, "__before__") == 0) {
-        printf("BEFORE\n");
         Object* last = NULL;
         for (Node* n : context -> children) {
             if (n -> type == Node::Type::OBJECT) {
@@ -305,7 +304,7 @@ Object* Object::childSearchUp(const char* name, Object* context) { // name is ex
             return last;
         }
         else if (last != NULL) {
-            return last -> childSearchUp(name + segLen + 1);
+            return last -> childSearchUp(lname + segLen + 1);
         }
         else {
             return NULL;
@@ -330,7 +329,7 @@ Object* Object::childSearchUp(const char* name, Object* context) { // name is ex
             return next;
         }
         else if (next != NULL) {
-            return next -> childSearchUp(name + segLen + 1);
+            return next -> childSearchUp(lname + segLen + 1);
         }
         else {
             return NULL;
@@ -347,7 +346,7 @@ Object* Object::childSearchUp(const char* name, Object* context) { // name is ex
                             return candidate;
                         }
                         else {
-                            return candidate -> childSearchUp(name + segLen + 1);
+                            return candidate -> childSearchUp(lname + segLen + 1);
                         }
                     }
                 }
@@ -357,7 +356,7 @@ Object* Object::childSearchUp(const char* name, Object* context) { // name is ex
                         return candidate;
                     }
                     else {
-                        return candidate -> childSearchUp(name + segLen + 1); // the +1 is to consume the '.'
+                        return candidate -> childSearchUp(lname + segLen + 1); // the +1 is to consume the '.'
                     }
                 }
             }

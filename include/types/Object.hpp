@@ -45,7 +45,7 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
 
     Object* lookup(std::string& lname, Object* nope = NULL);
 
-    Object* childSearchUp(const char* name, Object* context = NULL);
+    Object* childSearchUp(const char* name);
 
     bool ptrEquals(Object* thing);
 
