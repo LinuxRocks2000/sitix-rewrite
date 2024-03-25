@@ -5,3 +5,5 @@ The old Sitix project may be somewhat functional but is considered closed and un
 Jekyll and my python scripts on all of my templated websites), which will be very soon; it already has very powerful templating worked out.
 
 Sitix has a website (generated, of course, with Sitix) at https://swaous.asuscomm.com/sitix.
+
+This uses CMake. 

@@ -1,0 +1,5 @@
+Scripts relevant to Sitix.
+
+* json2sitix.py
+    Turns any valid JSON file to a valid Sitix file. Usage: python json2sitix.py input.json output.stx
+    For pretty-printing, pass the -p flag.

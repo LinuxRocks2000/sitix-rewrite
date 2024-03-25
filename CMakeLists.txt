@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.27)
+project(Sitix)
+set(CMAKE_CXX_STANDARD 20)
+include_directories(include)
+file(GLOB TypeSources src/types/*.cpp)
+add_executable(sitix src/mapview.cpp src/sitix.cpp src/util.cpp src/sitixwriter.cpp src/evals.cpp src/node.cpp ${TypeSources})
