@@ -215,7 +215,7 @@ void renderFile(std::string in, Session* sitix) {
         fNameObj -> fileflags = fileflags;
         file -> addChild(fNameObj);
         if (file -> isTemplate) {
-            printf(INFO "%s is marked [?], will not be rendered.\n", in);
+            printf(INFO "%s is marked [?], will not be rendered.\n", in.c_str());
             printf("\tIf this file should be rendered, replace [?] with [!] in the header.\n");
         }
         else {
