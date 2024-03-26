@@ -219,10 +219,9 @@ void renderFile(std::string in, Session* sitix) {
             printf("\tIf this file should be rendered, replace [?] with [!] in the header.\n");
         }
         else {
-            FileWriteOutput fOut = sitix -> open(out);
+            FileWriteOutput fOut = sitix -> create(out);
             SitixWriter stream(fOut);
             file -> render(&stream, file, true);
-            close(output);
         }
         file -> pushedOut();
     }
@@ -287,7 +286,7 @@ int main(int argc, char** argv) {
     printf(INFO "Rendering project '%s' to '%s'.\n", siteDir.c_str(), outputDir.c_str());
 
     char* paths[] = { (char*)siteDir.c_str(), NULL }; // for FTS
-    FTS* ftsp = fts_open(paths, FTS_PHYSICAL, NULL);
+    FTS* ftsp = fts_open(paths, FTS_PHYSICAL | FTS_NOCHDIR, NULL);
     if (ftsp == NULL) {
         printf(ERROR "Couldn't initiate directory traversal.\n");
         perror("\tfts_open");
@@ -295,7 +294,7 @@ int main(int argc, char** argv) {
     FTSENT* ent;
     while ((ent = fts_read(ftsp)) != NULL) {
         if (ent -> fts_info == FTS_F) {
-            renderFile(ent -> fts_path);
+            renderFile(ent -> fts_path, &session);
         }
     }
     fts_close(ftsp);
