@@ -1,7 +1,7 @@
 #include <types/TextBlob.hpp>
 
 
-TextBlob::TextBlob() {
+TextBlob::TextBlob(Session* session) : Node(session) {
     type = TEXTBLOB;
 }
 

@@ -27,3 +27,5 @@ void Dereference::render(SitixWriter* out, Object* scope, bool dereference) {
     }
     found -> render(out, parent, true);
 }
+
+Dereference::Dereference(Session* session) : Node(session) {}

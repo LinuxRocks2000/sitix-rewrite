@@ -22,17 +22,17 @@ MapView::MapView(char* mm, size_t size) {
     init(mm, size);
 }
 
-MapView::MapView(const char* filename) {
+MapView::MapView(std::string filename) {
     map = NULL;
-    int file = open(filename, O_RDONLY);
+    int file = open(filename.c_str(), O_RDONLY);
     if (file == -1) {
-        printf(ERROR "Can't open %s for memory mapping!\n", filename);
+        printf(ERROR "Can't open %s for memory mapping!\n", filename.c_str());
         perror("\topen");
         return;
     }
     struct stat sb;
-    if (stat(filename, &sb)) {
-        printf(ERROR "Can't load %s for memory mapping!\n", filename);
+    if (stat(filename.c_str(), &sb)) {
+        printf(ERROR "Can't load %s for memory mapping!\n", filename.c_str());
         perror("\tstat");
         return;
     }
@@ -43,7 +43,7 @@ MapView::MapView(const char* filename) {
     map = (char*)mmap(0, sb.st_size, PROT_READ, MAP_SHARED, file, 0);
     if (map == MAP_FAILED) {
         map = NULL;
-        printf(ERROR "Can't load %s for memory mapping!\n", filename);
+        printf(ERROR "Can't load %s for memory mapping!\n", filename.c_str());
         perror("\tmmap");
         return;
     }

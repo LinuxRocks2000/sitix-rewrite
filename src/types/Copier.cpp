@@ -21,3 +21,5 @@ void Copier::render(SitixWriter* out, Object* scope, bool dereference) {
     o -> rCount ++;
     t -> ghost = o;
 }
+
+Copier::Copier(Session* session) : Node(session){}

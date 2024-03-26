@@ -5,17 +5,35 @@
 #include <defs.h>
 #include <map>
 #include <mapview.hpp>
+#include <util.hpp>
 
 
 class FileMan {
-    std::string dir;
     std::map<std::string, MapView> maps;
-    bool valid = true;
 
 public:
-    FileMan(std::string rdir); // construct the Fileman to manage the directory referenced by rdir.
+    enum PathState {
+        CNEP,      // Ce n'existe pas
+        Directory, // it's a directory
+        File,      // it's a file
+        Other,     // it's something else (symlink?)
+        Error      // an error occurred when stat'ing it
+    };
 
-    void empty(); // empty the controlled directory and add the .sitix file (it will provide a warning prompt if .sitix doesn't exist)
+    PathState checkPath(std::string path);
+
+    std::string transmuted(std::string path); // like old transmuted but less awful
+
+    std::string arcTransmuted(std::string path); // strip off this directory from a path (returning something relative to this directory), if possible
+
+    bool valid = true; // set to false by the FileMan if there's an error
+
+    std::string dir;
+
+    FileMan(std::string rdir); // construct the FileMan to manage the directory referenced by rdir.
+
+    bool empty(); // empty the controlled directory and add the .sitix file (it will provide a warning prompt if .sitix doesn't exist)
+    // returns whether or not it the directory was emptied.
 
     FileWriteOutput create(std::string where); // create a file and all of its parent directories, and return the filewriteoutput
     // that controls it. That filewriteoutput can be handed off to a SitixWriter for minification + markdown or can just be used raw.

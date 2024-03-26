@@ -3,12 +3,12 @@
 #include <types/Object.hpp>
 
 
-IfStatement::IfStatement(MapView& map, MapView command, FileFlags *flags) : evalsCommand(command) {
-    mainObject = new Object;
+IfStatement::IfStatement(Session* session, MapView& map, MapView command, FileFlags *flags) : Node(session), evalsCommand(command) {
+    mainObject = new Object(session);
     fileflags = *flags;
-    if (fillObject(map, mainObject, flags) == FILLOBJ_EXIT_ELSE) {
-        elseObject = new Object;
-        fillObject(map, elseObject, flags);
+    if (fillObject(map, mainObject, flags, session) == FILLOBJ_EXIT_ELSE) {
+        elseObject = new Object(session);
+        fillObject(map, elseObject, flags, session);
         elseObject -> fileflags = *flags;
     }
     mainObject -> fileflags = *flags;

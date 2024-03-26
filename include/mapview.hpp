@@ -17,7 +17,7 @@ class MapView {
 public:
     MapView(char* mm, size_t size);
 
-    MapView(const char* filename);
+    MapView(std::string filename);
 
     bool isValid();
 

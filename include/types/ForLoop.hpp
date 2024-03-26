@@ -12,7 +12,7 @@ struct ForLoop : Node {
 
     ~ForLoop();
 
-    ForLoop(MapView tagData, MapView& map, FileFlags* flags);
+    ForLoop(Session* session, MapView tagData, MapView& map, FileFlags* flags);
 
     void attachToParent(Object* thing);
 

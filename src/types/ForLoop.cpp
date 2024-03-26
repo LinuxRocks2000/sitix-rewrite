@@ -10,14 +10,14 @@ ForLoop::~ForLoop() {
     internalObject = NULL;
 }
 
-ForLoop::ForLoop(MapView tagData, MapView& map, FileFlags* flags) {
-    internalObject = new Object;
+ForLoop::ForLoop(Session* session, MapView tagData, MapView& map, FileFlags* flags) : Node(session) {
+    internalObject = new Object(session);
     tagData.trim();
     goal = tagData.consume(' ').toString();
     tagData.trim();
     fileflags = *flags;
     iteratorName = tagData.toString(); // whatever's left is the name of the iterator
-    fillObject(map, internalObject, flags);
+    fillObject(map, internalObject, flags, session);
 }
 
 void ForLoop::attachToParent(Object* thing) {
@@ -33,7 +33,7 @@ void ForLoop::render(SitixWriter* out, Object* scope, bool dereference) { // the
         printf(ERROR "Array lookup for %s failed. The output will be malformed.\n", goal);
         return;
     }
-    Object iterator;
+    Object iterator(sitix);
     iterator.namingScheme = Object::NamingScheme::Named;
     iterator.name = iteratorName;
     internalObject -> addChild(&iterator);

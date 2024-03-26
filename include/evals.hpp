@@ -115,7 +115,7 @@ struct EvalsSession {
 struct EvalsBlob : Node {
     MapView data;
 
-    EvalsBlob(MapView d);
+    EvalsBlob(Session*, MapView d);
 
     void render(SitixWriter* out, Object* scope, bool dereference);
 };

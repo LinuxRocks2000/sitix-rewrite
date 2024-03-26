@@ -4,9 +4,10 @@
 #include <dirent.h>
 #include <types/TextBlob.hpp>
 #include <types/PlainText.hpp>
+#include <session.hpp>
 
 
-Object::Object() {
+Object::Object(Session* session) : Node(session) {
     type = OBJECT;
 }
 
@@ -165,106 +166,100 @@ Object* Object::lookup(std::string& lname, Object* nope) { // lookup variant tha
     if (parent == NULL) { // if we ARE the parent
         // config searches, directory unpacks and file unpacks are on the root scope, see
         // check config
-        for (Object* cnf : config) {
-            if (cnf -> name == lname) {
-                return cnf;
-            }
+        Object* confCheck = sitix -> configLookup(lname);
+        if (confCheck != NULL) {
+            return confCheck;
         }
         // unpack a directory/file
-        struct stat sb;
-        char* directoryName = transmuted("", siteDir, root);
-        if (stat(directoryName, &sb) == 0) {
-            if (S_ISDIR(sb.st_mode)) { // if `root` is the name of an accessible directory
-                Object* dirObject = new Object;
-                DIR* directory = opendir(directoryName);
-                struct dirent* entry;
-                while ((entry = readdir(directory)) != NULL) { // LEAKS MEMORY!
-                    if (entry -> d_name[0] == '.') { // . and ..
-                        continue;
-                    }
-                    char* transmuteNamep1 = transmuted("", root, entry -> d_name);
-                    std::string transmuteName = escapeString(transmuteNamep1, '.');
-                    free(transmuteNamep1);
-                    Object* enumerated = new Object;
-                    Object* file = lookup(transmuteName); // guaranteed not to fail
-                    if (file == NULL) {
-                        printf(ERROR "Unpacking lookup for %s in directory-to-array unpacking FAILED! The output will be malformed!\n", transmuteName);
-                        continue;
-                    }
-                    file -> rCount ++; // bump the ref count, see the Object definition above for information on this
-                    enumerated -> ghost = file;
-                    enumerated -> namingScheme = Object::NamingScheme::Enumerated; // change the structure of the copied object to be an enumerated entry
-                    enumerated -> number = dirObject -> highestEnumerated;
-                    dirObject -> highestEnumerated ++;
-                    dirObject -> addChild(enumerated); // look up the file and add it to this directory object
-                    // the whole scheme is, like, *whoa*
-                    // when I realized how much simpler this could be (no includes, everything is lazy-loaded, etc)
-                    // I was, like,
-                    // *whoa*
-                    // I imagine this is what doing marijuana feels like
-                    // 'cause, yk, it's all connected, *maaaaan*
+        FileMan::PathState state = sitix -> checkPath(root);
+        std::string directoryName = sitix -> transmuted(root);
+        if (state == FileMan::PathState::Directory) {
+            Object* dirObject = new Object(sitix);
+            DIR* directory = opendir(directoryName.c_str());
+            struct dirent* entry;
+            while ((entry = readdir(directory)) != NULL) {
+                if (entry -> d_name[0] == '.') { // . and ..
+                    continue;
                 }
-                closedir(directory);
-                dirObject -> namingScheme = Object::NamingScheme::Named;
-                ::free(directoryName);
-                dirObject -> name = root;
-                addChild(dirObject);// DON'T free root because it was passed into the dirObject
-                if (rootSegLen == lname.size()) {
-                    return dirObject;
+                char* transmuteNamep1 = transmuted("", root, entry -> d_name);
+                std::string transmuteName = escapeString(transmuteNamep1, '.');
+                free(transmuteNamep1);
+                Object* enumerated = new Object(sitix);
+                Object* file = lookup(transmuteName); // guaranteed not to fail
+                if (file == NULL) {
+                    printf(ERROR "Unpacking lookup for %s in directory-to-array unpacking FAILED! The output will be malformed!\n", transmuteName);
+                    continue;
                 }
-                else {
-                    return dirObject -> childSearchUp(lname.c_str() + rootSegLen + 1);
-                }
+                file -> rCount ++; // bump the ref count, see the Object definition above for information on this
+                enumerated -> ghost = file;
+                enumerated -> namingScheme = Object::NamingScheme::Enumerated; // change the structure of the copied object to be an enumerated entry
+                enumerated -> number = dirObject -> highestEnumerated;
+                dirObject -> highestEnumerated ++;
+                dirObject -> addChild(enumerated); // look up the file and add it to this directory object
+                // the whole scheme is, like, *whoa*
+                // when I realized how much simpler this could be (no includes, everything is lazy-loaded, etc)
+                // I was, like,
+                // *whoa*
+                // I imagine this is what doing marijuana feels like
+                // 'cause, yk, it's all connected, *maaaaan*
             }
-            else if (S_ISREG(sb.st_mode)) {
-                // construct the "filename" object inside loaded files
-                // TODO: add a truncated filename object inside the loaded file, which would contain "mod1.html" rather than
-                // "templates/modules/mod1.html", for instance.
-                TextBlob* fNameContent = new TextBlob;
-                fNameContent -> data = root;
-                Object* fNameObj = new Object;
-                fNameObj -> virile = false;
-                fNameObj -> namingScheme = Object::NamingScheme::Named;
-                fNameObj -> name = "filename";
-                fNameObj -> addChild(fNameContent);
-
-                MapView map(directoryName);
-                if (!map.isValid()) {
-                    printf(ERROR "Invalid map!\n");
-                    return NULL;
-                }
-
-                // put together the actual file object, store it on global, and return it
-                Object* fileObj = new Object;
-                fileObj -> isFile = true;
-                fileObj -> addChild(fNameObj); // add the filename to the object
-                fileObj -> namingScheme = Object::NamingScheme::Named;
-                fileObj -> name = strdup(root); // reference name of the object, so it can be quickly looked up later without another slow cold-load
-                if (map.cmp("[?]") || map.cmp("[!]")) {
-                    FileFlags flags;
-                    map += 3;
-                    fillObject(map, fileObj, &flags);
-                    fNameContent -> fileflags = flags;
-                    fNameObj -> fileflags = flags;
-                }
-                else {
-                    PlainText* content = new PlainText(map);
-                    content -> fileflags.sitix = false;
-                    fileObj -> addChild(content);
-                }
-                addChild(fileObj); // since we're the global scope, we should add the file to us.
-                // the goal is to create an illusion that the entire directory structure is a cohesive part of the object tree
-                // and then sorta just load files when they ask us to
-                free(directoryName);
-                free(root);
-                return fileObj;
+            closedir(directory);
+            dirObject -> namingScheme = Object::NamingScheme::Named;
+            dirObject -> name = root;
+            addChild(dirObject);// DON'T free root, because it was passed into the dirObject
+            if (rootSegLen == lname.size()) {
+                return dirObject;
+            }
+            else {
+                return dirObject -> childSearchUp(lname.c_str() + rootSegLen + 1);
             }
         }
-        free(directoryName);
-    }
-    else {
-        ::free(root);
-        return parent -> lookup(lname, nope);
+        else if (state == FileMan::PathState::File) {
+            // construct the "filename" object inside loaded files
+            // TODO: add a truncated filename object inside the loaded file, which would contain "mod1.html" rather than
+            // "templates/modules/mod1.html", for instance.
+            TextBlob* fNameContent = new TextBlob(sitix);
+            fNameContent -> data = root;
+            Object* fNameObj = new Object(sitix);
+            fNameObj -> virile = false;
+            fNameObj -> namingScheme = Object::NamingScheme::Named;
+            fNameObj -> name = "filename";
+            fNameObj -> addChild(fNameContent);
+
+            MapView map = sitix -> open(directoryName);
+            if (!map.isValid()) {
+                printf(ERROR "Invalid map!\n");
+                return NULL;
+            }
+
+            // put together the actual file object, store it on global, and return it
+            Object* fileObj = new Object(sitix);
+            fileObj -> isFile = true;
+            fileObj -> addChild(fNameObj); // add the filename to the object
+            fileObj -> namingScheme = Object::NamingScheme::Named;
+            fileObj -> name = strdup(root); // reference name of the object, so it can be quickly looked up later without another slow cold-load
+            if (map.cmp("[?]") || map.cmp("[!]")) {
+                FileFlags flags;
+                map += 3;
+                fillObject(map, fileObj, &flags, sitix);
+                fNameContent -> fileflags = flags;
+                fNameObj -> fileflags = flags;
+            }
+            else {
+                PlainText* content = new PlainText(sitix, map);
+                content -> fileflags.sitix = false;
+                fileObj -> addChild(content);
+            }
+            addChild(fileObj); // since we're the global scope, we should add the file to us.
+            // the goal is to create an illusion that the entire directory structure is a cohesive part of the object tree
+            // and then sorta just load files when they ask us to
+            free(root);
+            return fileObj;
+        }
+        else {
+            ::free(root);
+            return parent -> lookup(lname, nope);
+        }
     }
     ::free(root);
     return NULL;

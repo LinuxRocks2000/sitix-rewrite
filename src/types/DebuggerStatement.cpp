@@ -10,3 +10,5 @@ void DebuggerStatement::render(SitixWriter* out, Object* scope, bool dereference
     scope -> pTree(1);
     printf("====  DEBUGGER OVER ====\n");
 }
+
+DebuggerStatement::DebuggerStatement(Session* session) : Node(session) {}

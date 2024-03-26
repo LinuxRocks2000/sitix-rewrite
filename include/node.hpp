@@ -2,21 +2,26 @@
 #include <fileflags.h>
 #include <sitixwriter.hpp>
 
-struct Object; // forward-dec
-
+struct Object; // forward-declarations
+struct Session;
 
 struct Node { // superclass
     virtual ~Node();
 
     Object* parent = NULL; // everything has an Object parent, except the root Object (which will have a NULL parent)
+    Session* sitix;
+
+    Node(Session* session) {
+        sitix = session;
+    }
 
     FileFlags fileflags;
     enum Type {
-        OTHER = 1,
-        PLAINTEXT = 3,
-        TEXTBLOB = 5,
-        OBJECT = 7
-    } type = OTHER; // it's necessary to specificate from Node to plaintext, object, etc in some cases.
+        OTHER,
+        PLAINTEXT,
+        TEXTBLOB,
+        OBJECT
+    } type = OTHER; // it's occasionally necessary to promote from Node to PlainText, Object, etc.
 
     virtual void render(SitixWriter* stream, Object* scope, bool dereference = false) = 0; // true virtual function
     // scope is a SECONDARY scope. If a lookup fails in the primary scope (the parent), scope lookup will be performed in the secondary scope.

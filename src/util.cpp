@@ -200,3 +200,14 @@ std::string transmuted(std::string from, std::string to, std::string path) {
 bool isWhitespace(char thing) {
     return thing == ' ' || thing == '\t' || thing == '\n' || thing == '\r';
 }
+
+int iterRemove(const char* fpath, const struct stat* sb, int typeflag, struct FTW* ftwbuf) {
+    if (remove(fpath)) {
+        printf(WARNING "Encountered a non-fatal error while removing %s\n", fpath);
+    }
+    return 0;
+}
+
+void rmrf(const char* path) {
+    nftw(path, iterRemove, 64, FTW_DEPTH);
+}

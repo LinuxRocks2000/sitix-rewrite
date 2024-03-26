@@ -3,13 +3,13 @@
 #include <node.hpp>
 #include <mapview.hpp>
 #include <sitixwriter.hpp>
-struct Object; // forward-dec
+#include <defs.h>
 
 
 struct PlainText : Node {
     MapView data;
 
-    PlainText(MapView d);
+    PlainText(Session*, MapView d);
 
     void render(SitixWriter* stream, Object* scope, bool dereference);
 

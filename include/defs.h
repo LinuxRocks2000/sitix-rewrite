@@ -16,11 +16,8 @@ struct MapView; // ideally this file will be changed far less frequently than th
 struct FileWriteOutput;
 struct StringWriteOutput;
 struct SitixWriter;
-
-extern const char* outputDir; // global variables are gross but some of the c standard library higher-order functions I'm using don't support argument passing
-extern const char* siteDir;
-extern std::vector<Object*> config;
+class Session;
 
 
-Object string2object(const char* data, size_t length);
-int fillObject(MapView& m, Object*, FileFlags*);
+Object string2object(const char* data, size_t length, Session*);
+int fillObject(MapView&, Object*, FileFlags*, Session*);

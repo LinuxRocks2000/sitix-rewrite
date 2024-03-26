@@ -400,7 +400,7 @@ EvalsObject* EvalsSession::render(MapView data) { // all Evals commands produce 
 
 
 
-EvalsBlob::EvalsBlob(MapView d) : data(d) {};
+EvalsBlob::EvalsBlob(Session* session, MapView d) : Node(session), data(d) {};
 
 void EvalsBlob::render(SitixWriter* out, Object* scope, bool dereference) {
     EvalsSession session{parent, scope};

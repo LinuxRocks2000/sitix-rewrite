@@ -9,7 +9,7 @@ struct RedirectorStatement : Node {
 
     ~RedirectorStatement();
 
-    RedirectorStatement(MapView& map, MapView command, FileFlags* flags);
+    RedirectorStatement(Session*, MapView& map, MapView command, FileFlags* flags);
 
     void attachToParent(Object* p);
 

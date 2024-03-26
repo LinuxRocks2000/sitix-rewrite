@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <sys/stat.h>
 #include <defs.h>
+#include <ftw.h>
 
 char* strdupn(const char* thing, size_t length);
 
@@ -29,3 +30,7 @@ char* transmuted(const char* from, const char* to, const char* path);
 std::string transmuted(std::string from, std::string to, std::string path);
 
 bool isWhitespace(char thing);
+
+int iterRemove(const char* fpath, const struct stat* sb, int typeflag, struct FTW* ftwbuf);
+
+void rmrf(const char* path);

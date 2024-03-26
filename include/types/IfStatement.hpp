@@ -12,7 +12,7 @@ struct IfStatement : Node {
 
     MapView evalsCommand;
 
-    IfStatement(MapView& map, MapView command, FileFlags *flags);
+    IfStatement(Session*, MapView& map, MapView command, FileFlags *flags);
 
     void attachToParent(Object* p);
 

@@ -1,7 +1,7 @@
 #include <types/PlainText.hpp>
 
 
-PlainText::PlainText(MapView d) : data(d) {
+PlainText::PlainText(Session* session, MapView d) : Node(session), data(d) {
     type = PLAINTEXT;
 }
 

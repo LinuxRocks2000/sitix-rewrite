@@ -22,7 +22,7 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
 
     int rCount = 1;
 
-    Object();
+    Object(Session*);
 
     void pushedOut();
 
