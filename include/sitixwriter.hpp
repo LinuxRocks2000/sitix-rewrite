@@ -39,6 +39,7 @@ struct MarkdownState {
     bool strikethrough = false;
     bool code = false;
     bool paragraph = false;
+    size_t htype = 0;
 };
 
 

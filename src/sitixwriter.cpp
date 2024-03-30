@@ -116,6 +116,14 @@ void SitixWriter::markdownWrite(const char* data, size_t length) { // this is no
             markdownState.underline = !markdownState.underline;
             i += 2;
         }
+        else if (data[i] == '#' && i > 0 && data[i - 1] == 10) { // if # is the first character after a newline, we're doing some kind of header
+            markdownState.htype = 0;
+            while (data[i] == '#') {
+                markdownState.htype ++;
+                i ++;
+            }
+            write("<h" + std::to_string(markdownState.htype) + ">");
+        }
         else if (data[i] == '~' && i < length - 1 && data[i + 1] == '~') {
             if (i > chunk) {
                 write(data + chunk, to - chunk);
@@ -149,6 +157,10 @@ void SitixWriter::markdownWrite(const char* data, size_t length) { // this is no
                 write(data + chunk, to - chunk);
                 chunk = i;
             }
+            if (markdownState.htype > 0) {
+                write("</h" + std::to_string(markdownState.htype) + ">");
+                markdownState.htype = 0;
+            }
             if (i > 0 && data[i - 1] == ' ') {
                 write("<br>", 4);
             }
@@ -156,6 +168,35 @@ void SitixWriter::markdownWrite(const char* data, size_t length) { // this is no
                 write("</p><p>", 7);
             }
             i ++;
+        }
+        else if (data[i] == '/') { // "/" instead of "["/"]", because "["/"]" is already taken by Sitix itself.
+            i ++;
+            size_t textStart = i;
+            while (data[i] != '/' && i < length) {
+                i ++;
+            }
+            size_t textLen = i - textStart;
+            if (data[i + 1] == '(') {
+                if (i > chunk) {
+                    write(data + chunk, to - chunk);
+                }
+                i += 2;
+                size_t hrefStart = i;
+                while (data[i] != ')') {
+                    i ++;
+                }
+                write("<a href=\"");
+                write(data + hrefStart, i - hrefStart);
+                write("\">");
+                write(data + textStart, textLen);
+                write("</a>");
+                i ++;
+                chunk = i;
+            }
+            else { // "malformed" link, the user probably doesn't want it rendered
+                write("/", 1);
+                write(data + textStart, textLen);
+            }
         }
         else {
             i ++;
