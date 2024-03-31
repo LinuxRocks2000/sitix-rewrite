@@ -29,5 +29,5 @@ MapView Session::open(std::string path) {
 }
 
 std::string Session::toOutput(std::string path) {
-    return output.transmuted(input.arcTransmuted(path));
+    return input.arcTransmuted(path);
 }

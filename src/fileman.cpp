@@ -79,6 +79,7 @@ bool FileMan::empty() { // returns whether the directory was emptied
 }
 
 FileWriteOutput FileMan::create(std::string name) {
+    name = transmuted(name);
     mkdirR(name);
     mode_t mask = umask(0);
     int output = ::open(name.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0770); // rw for user and group
