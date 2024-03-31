@@ -256,10 +256,10 @@ Object* Object::lookup(std::string& lname, Object* nope) { // lookup variant tha
             free(root);
             return fileObj;
         }
-        else {
-            ::free(root);
-            return parent -> lookup(lname, nope);
-        }
+    }
+    else {
+        ::free(root);
+        return parent -> lookup(lname, nope);
     }
     ::free(root);
     return NULL;
