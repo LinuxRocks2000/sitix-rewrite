@@ -373,7 +373,7 @@ EvalsObject* EvalsSession::render(MapView data) { // all Evals commands produce 
                         break;
                     }
                 }
-                stack.push_back(new StringObject(s.substr(trimStart, trimEnd - trimStart)));
+                stack.push_back(new StringObject(s.substr(trimStart, trimEnd - trimStart + 1)));
             }
             else if (symbol == "true") {
                 stack.push_back(new BooleanObject(true));
