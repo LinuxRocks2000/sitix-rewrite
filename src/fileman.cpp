@@ -58,8 +58,8 @@ FileMan::PathState FileMan::checkPath(std::string path) {
 
 bool FileMan::empty() { // returns whether the directory was emptied
     struct stat sb;
-    std::string dotsitix = fconcat(dir, ".sitix");
-    if (stat(dotsitix.c_str(), &sb) == -1) {
+    std::string dotsitix = ".sitix";
+    if (stat(transmuted(dotsitix).c_str(), &sb) == -1) {
         printf(WARNING "The directory %s does not appear to be managed by Sitix. This may be because this is the first build."
         "\n\tRemember that Sitix will delete all the contents of %s before rendering!"
         "\n\tAre you sure you want to \033[1mfully delete\033[0m the contents of %s and render this Sitix project to it? Y/N: ", dir.c_str(), dir.c_str(), dir.c_str());
@@ -74,7 +74,9 @@ bool FileMan::empty() { // returns whether the directory was emptied
     mode_t mask = umask(0);
     chmod(dir.c_str(), 0775);
     umask(mask);
-    create(dotsitix);
+    const char* dotsitixcontent = "Project rendered by Sitix (by Tyler Clarke). Sitix is free and open source software protected by GPLv3. For more information on Sitix, see the website: https://swaous.asuscomm.com/sitix. "
+    "\n\nThis file is automatically added to mark a project directory; the directory this is in will be FULLY DELETED by the next Sitix build and files in it should not be manually edited.";
+    create(dotsitix).write(dotsitixcontent, strlen(dotsitixcontent));
     return true;
 }
 

@@ -12,3 +12,8 @@ void DebuggerStatement::render(SitixWriter* out, Object* scope, bool dereference
 }
 
 DebuggerStatement::DebuggerStatement(Session* session) : Node(session) {}
+
+void DebuggerStatement::pTree(int tabLevel) {
+    for (int i = 0; i < tabLevel; i ++) {printf("\t");}
+    printf("CALL TO DEBUGGER\n");
+}

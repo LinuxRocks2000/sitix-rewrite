@@ -12,5 +12,5 @@ void TextBlob::render(SitixWriter* out, Object* scope, bool dereference) {
 
 void TextBlob::pTree(int tabLevel) { // replacing debugPrint because it's much more usefulicious
     for (int x = 0; x < tabLevel; x ++) {printf("\t");}
-    printf("Text content\n");
+    printf("Text content %d\n", this);
 }

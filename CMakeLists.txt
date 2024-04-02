@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.14)
 project(Sitix)
 set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_BUILD_TYPE Debug)
 include_directories(include)
 file(GLOB TypeSources src/types/*.cpp)
 file(GLOB MainSources src/*.cpp)

@@ -78,7 +78,13 @@ void Object::render(SitixWriter* out, Object* scope, bool dereference) { // obje
         return;
     }
     for (size_t i = 0; i < children.size(); i ++) {
+        if (children[i] -> type == Node::Type::OBJECT) { // it's possible for objects to be replaced during rendering, so we have to bump up the reference count
+            ((Object*)(children[i])) -> rCount ++;
+        }
         children[i] -> render(out, scope);
+        if (children[i] -> type == Node::Type::OBJECT) {
+            ((Object*)(children[i])) -> pushedOut(); // run recycler routines because we're not using it in this scope now, and it might need to be destroyed.
+        }
     }
 }
 
@@ -437,7 +443,9 @@ bool Object::replace(std::string& name, Object* obj) {
     }
     if (o != NULL) {
         obj -> rCount ++;
-        obj -> parent = o -> parent;
+        // originally, when pointer-swapping, parenthood was changed so the swapped-in object would have exactly the same lookup semantics as the swapped-out object.
+        // it was later ascertained that this is dumb.
+        //obj -> parent = o -> parent;
         o -> parent -> ptrswap(o, obj);
         o -> pushedOut();
         return true;

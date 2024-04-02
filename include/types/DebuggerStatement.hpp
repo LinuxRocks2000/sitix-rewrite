@@ -7,5 +7,7 @@
 struct DebuggerStatement : Node {
     DebuggerStatement(Session* session);
 
-    virtual void render(SitixWriter* out, Object* scope, bool dereference);
+    void render(SitixWriter* out, Object* scope, bool dereference);
+
+    void pTree(int tabLevel);
 };

@@ -225,19 +225,24 @@ EvalsObject* EvalsSession::render(MapView data) { // all Evals commands produce 
                 stack.pop_back();
                 std::string name = fname -> toString();
                 delete fname;
-                size_t lastSlash = 0;
-                for (lastSlash = name.size() - 1; lastSlash >= 0; lastSlash --) {
-                    if (name[lastSlash] == '/') {
-                        break;
-                    }
+                if (name.size() == 0) {
+                    stack.push_back(new StringObject(name));
                 }
-                size_t lastDot = 0;
-                for (lastDot = name.size() - 1; lastDot >= 0; lastDot --) {
-                    if (name[lastDot] == '.') {
-                        break;
+                else {
+                    size_t lastSlash = 0;
+                    for (lastSlash = name.size() - 1; lastSlash >= 0; lastSlash --) {
+                        if (name[lastSlash] == '/') {
+                            break;
+                        }
                     }
+                    size_t lastDot = 0;
+                    for (lastDot = name.size() - 1; lastDot >= 0; lastDot --) {
+                        if (name[lastDot] == '.') {
+                            break;
+                        }
+                    }
+                    stack.push_back(new StringObject(name.substr(lastSlash + 1, lastDot - lastSlash - 1)));
                 }
-                stack.push_back(new StringObject(name.substr(lastSlash + 1, lastDot - lastSlash - 1)));
             }
             else if (symbol == "copy") {
                 stack.push_back(stack[stack.size() - 1] -> copy());
