@@ -96,7 +96,13 @@ FileWriteOutput FileMan::create(std::string name) {
 
 MapView FileMan::open(std::string name) {
     if (!maps.contains(name)) {
-        maps.insert({ name, MapView(name) });
+        MapView m(name);
+        if (m.isValid()) {
+            maps.insert({ name, MapView(name) });
+        }
+        else {
+            return m;
+        }
     }
     return maps.at(name);
 }

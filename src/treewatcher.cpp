@@ -129,6 +129,6 @@ void TreeWatcher::waitForModifications(Session* sitix, std::function<void(std::s
         onDelete(absname);
     }
     else {
-        printf("Unrecognized inotify event %d on file %s\n", evt -> mask, absname.c_str());
+        printf(WARNING "Unrecognized inotify event %d on file %s\n", evt -> mask, absname.c_str());
     }
 }

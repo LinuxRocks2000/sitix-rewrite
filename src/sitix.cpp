@@ -226,6 +226,9 @@ void renderFile(std::string in, Session* sitix) {
         }
         file -> pushedOut();
     }
+    else {
+        printf(ERROR "Invalid map.\n");
+    }
 }
 
 struct ConfigEntry {

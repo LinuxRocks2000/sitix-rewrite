@@ -37,7 +37,7 @@ MapView::MapView(std::string filename) {
         return;
     }
     if (sb.st_size == 0) {
-        printf(WARNING "%s has zero size and will not be rendered.\n\tIf you absolutely need an empty file there, consider writing a script to `touch` it in after Sitix builds.\n", filename);
+        printf(WARNING "%s has zero size and will not be rendered.\n\tIf you absolutely need an empty file there, consider writing a script to `touch` it in after Sitix builds.\n", filename.c_str());
         return;
     }
     map = (char*)mmap(0, sb.st_size, PROT_READ, MAP_SHARED, file, 0);
