@@ -12,17 +12,18 @@
 
 void MapView::init(char* mm, size_t size) {
     map = mm;
-    rCount = new int(1);
     length = size;
     start = 0;
     end = length;
 }
 
 MapView::MapView(char* mm, size_t size) {
+    rCount = new int(1);
     init(mm, size);
 }
 
 MapView::MapView(std::string filename) {
+    rCount = new int(1);
     map = NULL;
     int file = open(filename.c_str(), O_RDONLY);
     if (file == -1) {
@@ -105,7 +106,9 @@ MapView::~MapView() {
     (*rCount) --;
     if (*rCount == 0) {
         free(rCount);
-        munmap(map, length);
+        if (map != NULL) {
+            munmap(map, length);
+        }
     }
 }
 
