@@ -34,3 +34,7 @@ bool isWhitespace(char thing);
 int iterRemove(const char* fpath, const struct stat* sb, int typeflag, struct FTW* ftwbuf);
 
 void rmrf(const char* path);
+
+std::string trim2dir(std::string file); // strip off a filename from a path
+// if the path ends in /, it will not be changed
+// the output will always be formatted for quick appending: if it is not fully stripped to an empty string, the last character will be a /

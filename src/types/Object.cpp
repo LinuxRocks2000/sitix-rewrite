@@ -102,7 +102,7 @@ void Object::dropObject(Object* object) {
     }
 }
 
-Object* Object::lookup(std::string& lname, Object* nope) { // lookup variant that works on NAMES
+Object* Object::lookup(std::string& lname, Object* nope) { // lookup an object by its name
     // returning NULL means no suitable object was found here or at any point down in the tree
     // if `nope` is non-null, it will be used as a discriminant (it will not be returned)
     // note that copied objects will be returned; `nope` uses pointer-comparison only.
@@ -116,10 +116,9 @@ Object* Object::lookup(std::string& lname, Object* nope) { // lookup variant tha
         }
     }
     char* rootBit = strdupn(lname.c_str(), rootSegLen);
-    char* root = strip(rootBit, '\\');
+    std::string root = strip(rootBit, '\\');
     free(rootBit);
-    if (strcmp(root, "__this__") == 0) {
-        free(root);
+    if (root == "__this__") {
         if (rootSegLen == lname.size()) {
             return this;
         }
@@ -127,8 +126,7 @@ Object* Object::lookup(std::string& lname, Object* nope) { // lookup variant tha
             return this -> childSearchUp(lname.c_str() + rootSegLen + 1);
         }
     }
-    if (strcmp(root, "__file__") == 0) {
-        free(root);
+    if (root == "__file__") {
         Object* w = walkToFile();
         if (rootSegLen == lname.size()) {
             return w;
@@ -137,8 +135,8 @@ Object* Object::lookup(std::string& lname, Object* nope) { // lookup variant tha
             return w -> childSearchUp(lname.c_str() + rootSegLen + 1);
         }
     }
-    if (isFile && (namingScheme == NamingScheme::Named) && (strcmp(name.c_str(), root) == 0)) { // IF we're a file (or root), AND we have a name, AND the name matches, return us.
-        free(root); // this allows for things like comparing, say, tuba/rhubarb.stx with __file__
+    if (isFile && (namingScheme == NamingScheme::Named) && (root == name)) { // IF we're a file (or root), AND we have a name, AND the name matches, return us.
+        // this allows for things like comparing, say, tuba/rhubarb.stx with __file__
         if (rootSegLen == lname.size()) {
             return this;
         }
@@ -158,8 +156,7 @@ Object* Object::lookup(std::string& lname, Object* nope) { // lookup variant tha
                 // rendered would skip the first one and set the second one - which would mean the second one renders incorrectly. So instead, we
                 // want to jump out to the next-highest scope when we find an object that is correct, but noped.
             }
-            if (candidate -> namingScheme == Object::NamingScheme::Named && strcmp(candidate -> name.c_str(), root) == 0) {
-                free(root);
+            if (candidate -> namingScheme == Object::NamingScheme::Named && candidate -> name == root) {
                 if (rootSegLen == lname.size()) {
                     return candidate;
                 }
@@ -176,9 +173,8 @@ Object* Object::lookup(std::string& lname, Object* nope) { // lookup variant tha
         if (confCheck != NULL) {
             return confCheck;
         }
-        // unpack a directory/file
         FileMan::PathState state = sitix -> checkPath(root);
-        std::string directoryName = sitix -> transmuted(root);
+        std::string directoryName = sitix -> transmuted(root); // the filename relative to the current working directory
         if (state == FileMan::PathState::Directory) {
             Object* dirObject = new Object(sitix);
             DIR* directory = opendir(directoryName.c_str());
@@ -187,7 +183,7 @@ Object* Object::lookup(std::string& lname, Object* nope) { // lookup variant tha
                 if (entry -> d_name[0] == '.') { // . and ..
                     continue;
                 }
-                char* transmuteNamep1 = transmuted("", root, entry -> d_name);
+                char* transmuteNamep1 = transmuted("", root.c_str(), entry -> d_name);
                 std::string transmuteName = escapeString(transmuteNamep1, '.');
                 free(transmuteNamep1);
                 Object* enumerated = new Object(sitix);
@@ -243,7 +239,7 @@ Object* Object::lookup(std::string& lname, Object* nope) { // lookup variant tha
             fileObj -> isFile = true;
             fileObj -> addChild(fNameObj); // add the filename to the object
             fileObj -> namingScheme = Object::NamingScheme::Named;
-            fileObj -> name = strdup(root); // reference name of the object, so it can be quickly looked up later without another slow cold-load
+            fileObj -> name = root; // reference name of the object, so it can be quickly looked up later without another slow cold-load
             if (map.cmp("[?]") || map.cmp("[!]")) {
                 FileFlags flags;
                 map += 3;
@@ -260,15 +256,20 @@ Object* Object::lookup(std::string& lname, Object* nope) { // lookup variant tha
             // the goal is to create an illusion that the entire directory structure is a cohesive part of the object tree
             // and then sorta just load files when they ask us to
             sitix -> watcher.filewatch(sitix -> transmuted(root)) -> addDep(sitix -> watcher.filewatch(sitix -> transmuted(walkToFile() -> name))); // if this line doesn't cause a segmentation fault I will eat my hat
-            free(root);
             return fileObj;
+        }
+        // if we didn't find the file/directory on the top scope, let's see if it exists as a relative path
+        std::string rName = trim2dir(walkToFile() -> name);
+        if (root.size() < rName.size() || root.substr(0, rName.size()) != rName) {
+            std::string fileName = rName + lname; // so very stupid
+            // so, so, so very stupid
+            // this entire function should die honestly
+            return lookup(fileName, nope);
         }
     }
     else {
-        ::free(root);
         return parent -> lookup(lname, nope);
     }
-    ::free(root);
     return NULL;
 }
 

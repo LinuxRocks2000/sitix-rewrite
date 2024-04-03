@@ -211,3 +211,11 @@ int iterRemove(const char* fpath, const struct stat* sb, int typeflag, struct FT
 void rmrf(const char* path) {
     nftw(path, iterRemove, 64, FTW_DEPTH);
 }
+
+std::string trim2dir(std::string dir) {
+    size_t i = dir.size() - 1;
+    while (i > 0 && dir[i - 1] != '/') {
+        i --;
+    }
+    return dir.substr(0, i);
+}
