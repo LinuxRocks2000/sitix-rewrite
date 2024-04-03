@@ -310,13 +310,14 @@ int main(int argc, char** argv) {
 
     if (watchdog) {
         printf("\033[1;33mInitial build complete!\033[0m\n");
-        printf("\tSitix will now idle (it will not consume CPU) until a change is made, and will then re-render the affected files.\n");
+        printf(WATCHDOG "Sitix will now idle (it will not consume CPU) until a change is made, and will then re-render the affected files.\n");
         while (true) {
             session.watcher.waitForModifications(&session, [&](std::string name){
                 printf(WATCHDOG "%s was modified.\n", name.c_str());
                 renderFile(name, &session);
             }, [&](std::string name){
-                printf("%s was deleted\n", name.c_str());
+                printf(WATCHDOG "%s was deleted\n", name.c_str());
+                remove(session.output.transmuted(session.input.arcTransmuted(name)).c_str());
             });
         }
     }
