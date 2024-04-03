@@ -1,9 +1,6 @@
 [?]
-[=array-]
-    [=+-]
-        one love
-    [/]
-    [=+-]
-        one heart
-    [/]
+[=baseurl "hello"]
+[i true]
+    [=baseurl "hi"]
 [/]
+[^baseurl]

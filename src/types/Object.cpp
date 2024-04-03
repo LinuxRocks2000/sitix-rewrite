@@ -14,7 +14,7 @@ Object::Object(Session* session) : Node(session) {
 void Object::pushedOut() {
     rCount --;
     if (rCount < 0) {
-        printf(ERROR "Bad reference count. The program will probably crash.\n");
+        printf(ERROR "Bad reference count to %s. This may be fatal.\n", name.c_str());
     }
     if (rCount != 0) {
         return;
@@ -439,7 +439,7 @@ bool Object::replace(std::string& name, Object* obj) {
         return ghost -> replace(name, obj);
     }
     // returns true if the object was replaced, and false if it wasn't
-    Object* o = lookup(name, obj); // enable excluded-lookup
+    Object* o = lookup(name, obj); // enable excluded-lookup and deghost it
     if (o == obj) { // if the object that would be replaced is us, we don't want to go through with it.
         return false;
     }
@@ -448,8 +448,9 @@ bool Object::replace(std::string& name, Object* obj) {
         // originally, when pointer-swapping, parenthood was changed so the swapped-in object would have exactly the same lookup semantics as the swapped-out object.
         // it was later ascertained that this is dumb.
         //obj -> parent = o -> parent;
-        o -> parent -> ptrswap(o, obj);
-        o -> pushedOut();
+        //o -> parent -> ptrswap(o, obj);
+        //o -> pushedOut();
+        o -> ghost = obj;
         return true;
     }
     return false;

@@ -19,8 +19,13 @@ void Dereference::render(SitixWriter* out, Object* scope, bool dereference) {
                     continue;
                 }
                 if (!scope -> replace(o -> name, o)) {
+                    Object* ghost = new Object(sitix);
+                    ghost -> ghost = o;
                     o -> rCount ++;
-                    scope -> addChild(o);
+                    ghost -> namingScheme = o -> namingScheme;
+                    ghost -> name = o -> name;
+                    ghost -> number = o -> number;
+                    scope -> addChild(ghost);
                 }
             }
         }
