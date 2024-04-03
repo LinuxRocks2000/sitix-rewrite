@@ -300,33 +300,24 @@ int main(int argc, char** argv) {
     while ((ent = fts_read(ftsp)) != NULL) {
         if (ent -> fts_info == FTS_F) {
             renderFile(ent -> fts_path, &session);
+            session.watcher.filewatch(ent -> fts_path);
+        }
+        else if (ent -> fts_info == FTS_D) {
+            session.watcher.dirwatch(ent -> fts_path);
         }
     }
     fts_close(ftsp);
 
     if (watchdog) {
         printf("\033[1;33mInitial build complete!\033[0m\n");
-        printf("\tSitix will now idle (it will not consume CPU) until a change is made, and will re-render the \033[1mwhole project\033[0m.\n");
-        printf("\tWork is underway to make Sitix Watchdog render single files and their dependencies only.\n");
-        int notifier = inotify_init();
-        int watcher = inotify_add_watch(notifier, siteDir.c_str(), IN_MODIFY | IN_DELETE | IN_CREATE);
+        printf("\tSitix will now idle (it will not consume CPU) until a change is made, and will then re-render the affected files.\n");
         while (true) {
-            struct inotify_event buffer;
-            read(watcher, (char*)&buffer, sizeof(struct inotify_event)); // consume inotify events. we're ignoring them for now.
-            // in the future, we'll use the returned data to pick which files we need to rebuild.
-            printf("\033[1mFilesystem changed! Rebuilding.\033[0m\n");
-            FTS* ftsp = fts_open(paths, FTS_PHYSICAL | FTS_NOCHDIR, NULL);
-            if (ftsp == NULL) {
-                printf(ERROR "Couldn't initiate directory traversal.\n");
-                perror("\tfts_open");
-            }
-            FTSENT* ent;
-            while ((ent = fts_read(ftsp)) != NULL) {
-                if (ent -> fts_info == FTS_F) {
-                    renderFile(ent -> fts_path, &session);
-                }
-            }
-            fts_close(ftsp);
+            session.watcher.waitForModifications(&session, [&](std::string name){
+                printf(WATCHDOG "%s was modified.\n", name.c_str());
+                renderFile(name, &session);
+            }, [&](std::string name){
+                printf("%s was deleted\n", name.c_str());
+            });
         }
     }
     printf("\033[1;33mBuild complete!\033[0m\n");

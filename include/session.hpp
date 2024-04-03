@@ -3,12 +3,14 @@
 #include <defs.h>
 #include <string>
 #include <fileman.hpp>
+#include <treewatcher.hpp>
 
 
 struct Session {
     std::vector<Object*> config;
     FileMan input;
     FileMan output;
+    TreeWatcher watcher;
 
     Session(std::string inDir, std::string outDir);
 

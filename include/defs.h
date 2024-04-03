@@ -1,9 +1,10 @@
 #pragma once
 #include <vector>
 
-#define INFO     "\033[32m[  INFO   ]\033[0m "
-#define ERROR  "\033[1;31m[  ERROR  ]\033[0m "
-#define WARNING  "\033[33m[ WARNING ]\033[0m "
+#define INFO      "\033[32m[   INFO   ]\033[0m "
+#define ERROR   "\033[1;31m[   ERROR  ]\033[0m "
+#define WARNING   "\033[33m[  WARNING ]\033[0m "
+#define WATCHDOG  "\033[34m[ WATCHDOG ]\033[0m "
 
 #define FILLOBJ_EXIT_EOF  0
 #define FILLOBJ_EXIT_ELSE 1

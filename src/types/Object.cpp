@@ -259,6 +259,7 @@ Object* Object::lookup(std::string& lname, Object* nope) { // lookup variant tha
             addChild(fileObj); // since we're the global scope, we should add the file to us.
             // the goal is to create an illusion that the entire directory structure is a cohesive part of the object tree
             // and then sorta just load files when they ask us to
+            sitix -> watcher.filewatch(sitix -> transmuted(root)) -> addDep(sitix -> watcher.filewatch(sitix -> transmuted(walkToFile() -> name))); // if this line doesn't cause a segmentation fault I will eat my hat
             free(root);
             return fileObj;
         }
