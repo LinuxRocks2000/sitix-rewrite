@@ -134,8 +134,6 @@ Object* Object::lookup(std::string& lname, Object* nope) { // lookup an object b
                 if (entry -> d_name[0] == '.') { // . and ..
                     continue;
                 }
-                printf("root is %s\n", root.c_str());
-                printf("%s\n", 1);
                 char* transmuteNamep1 = transmuted("", root.c_str(), entry -> d_name);
                 std::string transmuteName = escapeString(transmuteNamep1, '.');
                 free(transmuteNamep1);
