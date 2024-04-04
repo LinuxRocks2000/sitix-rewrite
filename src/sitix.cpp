@@ -224,7 +224,7 @@ void renderFile(std::string in, Session* sitix) {
             SitixWriter stream(fOut);
             file -> render(&stream, file, true);
         }
-        file -> pushedOut();
+        delete file;
     }
     else {
         printf(ERROR "Invalid map.\n");
@@ -237,7 +237,7 @@ struct ConfigEntry {
 };
 
 int main(int argc, char** argv) {
-    printf("\033[1mSitix v2.0 by Tyler Clarke\033[0m\n");
+    printf("\033[1mSitix v2.1 by Tyler Clarke\033[0m\n");
     std::string outputDir = "output";
     std::string siteDir = "";
     std::vector<ConfigEntry> config;

@@ -35,6 +35,8 @@ struct TreeWatcher {
 
     TreeWatcher();
 
+    ~TreeWatcher();
+
     WatchedFile* filewatch(std::string file);
 
     WatchedDir* dirwatch(std::string path);

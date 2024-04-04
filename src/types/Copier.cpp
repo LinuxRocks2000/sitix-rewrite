@@ -18,8 +18,7 @@ void Copier::render(SitixWriter* out, Object* scope, bool dereference) {
     if (o == NULL) {
         printf(ERROR "Couldn't find %s for a copy operation. The output will be malformed.\n", object);
     }
-    o -> rCount ++;
-    t -> ghost = o;
+    t -> setGhost(o);
 }
 
 Copier::Copier(Session* session) : Node(session){}

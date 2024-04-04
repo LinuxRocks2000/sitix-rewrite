@@ -11,17 +11,17 @@ char* strdupn(const char* thing, size_t length) { // copy length bytes of a stri
 }
 
 
-char* strip(const char* thing, char trigger) { // clears all instances of a symbol out of a string
+std::string strip(std::string thing, char trigger) { // clears all instances of a symbol out of a string
     // this allocates memory! That means you have to free the memory!
     size_t trigCount = 0;
-    size_t size = strlen(thing);
+    size_t size = thing.size();
     for (size_t i = 0; i < size; i ++) {
         if (thing[i] == '\\') {
             trigCount ++;
         }
     }
-    char* ret = (char*)malloc(size - trigCount + 1);
-    ret[size - trigCount] = 0;
+    std::string ret;
+    ret.reserve(size - trigCount);
     size_t truePos = 0;
     size_t i = 0;
     while (i < size - trigCount) {
@@ -29,7 +29,7 @@ char* strip(const char* thing, char trigger) { // clears all instances of a symb
             truePos ++;
             continue;
         }
-        ret[i] = thing[truePos];
+        ret += thing[truePos];
         i ++;
         truePos ++;
     }

@@ -8,7 +8,7 @@
 
 char* strdupn(const char* thing, size_t length);
 
-char* strip(const char* thing, char trigger);
+std::string strip(std::string thing, char trigger);
 
 void mkdirR(std::string filename);
 

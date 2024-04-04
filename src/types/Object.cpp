@@ -11,57 +11,16 @@ Object::Object(Session* session) : Node(session) {
     type = OBJECT;
 }
 
-void Object::pushedOut() {
-    rCount --;
-    if (rCount < 0) {
-        printf(ERROR "Bad reference count to %s. This may be fatal.\n", name.c_str());
-    }
-    if (rCount != 0) {
-        return;
-    }
-    if (ghost != NULL) {
-        ghost -> pushedOut();
-    }
-    for (Node* child : children) {
-        if (child -> type == Node::Type::OBJECT) {
-            Object* o = (Object*)child;
-            o -> pushedOut();
+Object::~Object() {
+    for (size_t i = 0; i < children.size(); i ++) {
+        Node* child = children[i];
+        if (child == NULL) {
+            printf(ERROR "Null child found. This may cause strange bugs.");
         }
         else {
             delete child;
         }
     }
-    delete this;
-}
-
-Object::~Object() {/*
-    for (size_t i = 0; i < children.size(); i ++) {
-        Node* child = children[i];
-        if (child == NULL) {
-            printf(ERROR "Null child found. This may cause strange errors.");
-        }
-        else {
-            if (child -> type == Node::Type::OBJECT) {
-                Object* thing = (Object*)child;
-                if (*(thing -> rCount) > 0) {
-                    *(thing -> rCount) --;
-                }
-                else {
-                    delete child;
-                }
-            }
-            else {
-                delete child;
-            }
-        }
-    }
-    if (namingScheme == NamingScheme::Named) {
-        free(name);
-    }
-    if (rCount != NULL) {
-        free(rCount);
-        rCount = NULL;
-    }*/
 }
 
 void Object::render(SitixWriter* out, Object* scope, bool dereference) { // objects are just delegation agents, they don't contribute anything to the final text.
@@ -78,13 +37,7 @@ void Object::render(SitixWriter* out, Object* scope, bool dereference) { // obje
         return;
     }
     for (size_t i = 0; i < children.size(); i ++) {
-        if (children[i] -> type == Node::Type::OBJECT) { // it's possible for objects to be replaced during rendering, so we have to bump up the reference count
-            ((Object*)(children[i])) -> rCount ++;
-        }
         children[i] -> render(out, scope);
-        if (children[i] -> type == Node::Type::OBJECT) {
-            ((Object*)(children[i])) -> pushedOut(); // run recycler routines because we're not using it in this scope now, and it might need to be destroyed.
-        }
     }
 }
 
@@ -115,9 +68,7 @@ Object* Object::lookup(std::string& lname, Object* nope) { // lookup an object b
             break;
         }
     }
-    char* rootBit = strdupn(lname.c_str(), rootSegLen);
-    std::string root = strip(rootBit, '\\');
-    free(rootBit);
+    std::string root = strip(lname.substr(0, rootSegLen), '\\');
     if (root == "__this__") {
         if (rootSegLen == lname.size()) {
             return this;
@@ -183,6 +134,8 @@ Object* Object::lookup(std::string& lname, Object* nope) { // lookup an object b
                 if (entry -> d_name[0] == '.') { // . and ..
                     continue;
                 }
+                printf("root is %s\n", root.c_str());
+                printf("%s\n", 1);
                 char* transmuteNamep1 = transmuted("", root.c_str(), entry -> d_name);
                 std::string transmuteName = escapeString(transmuteNamep1, '.');
                 free(transmuteNamep1);
@@ -192,8 +145,7 @@ Object* Object::lookup(std::string& lname, Object* nope) { // lookup an object b
                     printf(ERROR "Unpacking lookup for %s in directory-to-array unpacking FAILED! The output will be malformed!\n", transmuteName);
                     continue;
                 }
-                file -> rCount ++; // bump the ref count, see the Object definition above for information on this
-                enumerated -> ghost = file;
+                enumerated -> setGhost(file);
                 enumerated -> namingScheme = Object::NamingScheme::Enumerated; // change the structure of the copied object to be an enumerated entry
                 enumerated -> number = dirObject -> highestEnumerated;
                 dirObject -> highestEnumerated ++;
@@ -404,18 +356,6 @@ void Object::pTree(int tabLevel) {
     }
 }
 
-void Object::ptrswap(Object* current, Object* repl) {
-    if (ghost != NULL) {
-        ghost -> ptrswap(current, repl);
-        return;
-    }
-    for (size_t i = 0; i < children.size(); i ++) {
-        if (children[i] == current) {
-            children[i] = repl;
-        }
-    }
-}
-
 Object* Object::deghost() { // walk across the ghost tree, grabbing the actual object
     if (ghost == NULL) {
         return this;
@@ -444,13 +384,7 @@ bool Object::replace(std::string& name, Object* obj) {
         return false;
     }
     if (o != NULL) {
-        obj -> rCount ++;
-        // originally, when pointer-swapping, parenthood was changed so the swapped-in object would have exactly the same lookup semantics as the swapped-out object.
-        // it was later ascertained that this is dumb.
-        //obj -> parent = o -> parent;
-        //o -> parent -> ptrswap(o, obj);
-        //o -> pushedOut();
-        o -> ghost = obj;
+        o -> setGhost(obj);
         return true;
     }
     return false;
@@ -480,4 +414,19 @@ Object* Object::nonvRoot() { // walk up the parent tree until we reach the first
     else {
         return this;
     }
+}
+
+void Object::setGhost(Object* o, bool rename) {
+    ghost = o;
+    if (rename) {
+        namingScheme = o -> namingScheme;
+        name = o -> name;
+        number = o -> number;
+    }
+}
+
+Object* Object::newGhost() {
+    Object* ret = new Object(sitix);
+    ret -> setGhost(this, true);
+    return ret;
 }

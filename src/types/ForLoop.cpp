@@ -3,11 +3,7 @@
 
 
 ForLoop::~ForLoop() {
-    if (internalObject == NULL) {
-        printf("DOUBLE FREE\n");
-    }
-    internalObject -> pushedOut();
-    internalObject = NULL;
+    delete internalObject;
 }
 
 ForLoop::ForLoop(Session* session, MapView tagData, MapView& map, FileFlags* flags) : Node(session) {

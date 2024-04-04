@@ -8,7 +8,7 @@
 
 
 RedirectorStatement::~RedirectorStatement() {
-    object -> pushedOut();
+    delete object;
 }
 
 RedirectorStatement::RedirectorStatement(Session* session, MapView& map, MapView command, FileFlags* flags) : Node(session), evalsCommand(command) {

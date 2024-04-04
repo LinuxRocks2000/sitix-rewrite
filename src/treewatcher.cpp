@@ -132,3 +132,15 @@ void TreeWatcher::waitForModifications(Session* sitix, std::function<void(std::s
         printf(WARNING "Unrecognized inotify event %d on file %s\n", evt -> mask, absname.c_str());
     }
 }
+
+TreeWatcher::~TreeWatcher() {
+    for (WatchedFile* file : files) {
+        inotify_rm_watch(inotifier, file -> watcher);
+        delete file;
+    }
+    for (WatchedDir* dir : directories) {
+        inotify_rm_watch(inotifier, dir -> watcher);
+        delete dir;
+    }
+    close(inotifier);
+}

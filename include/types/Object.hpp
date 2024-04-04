@@ -20,11 +20,7 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
 
     bool virile = true; // does it call replace()?
 
-    int rCount = 1;
-
     Object(Session*);
-
-    void pushedOut();
 
     std::string name; // a union would save some bytes of space but would cause annoying crap with the std::string name.
     uint32_t number;
@@ -51,8 +47,6 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
 
     void pTree(int tabLevel = 0);
 
-    void ptrswap(Object* current, Object* repl);
-
     Object* deghost();
 
     Object* walkToFile();
@@ -62,5 +56,9 @@ struct Object : Node { // Sitix objects contain a list of *nodes*, which can be 
     void debugPrint();
 
     Object* nonvRoot();
+
+    void setGhost(Object* to, bool rename = false); // set the ghost and optionally change the name of this object.
+
+    Object* newGhost(); // Create a new ghost reference to this object
 };
 

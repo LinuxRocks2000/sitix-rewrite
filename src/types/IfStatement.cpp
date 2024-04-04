@@ -22,9 +22,9 @@ void IfStatement::attachToParent(Object* p) {
 }
 
 IfStatement::~IfStatement() {
-    mainObject -> pushedOut();
+    delete mainObject;
     if (elseObject != NULL) {
-        elseObject -> pushedOut();
+        delete elseObject;
     }
 }
 
