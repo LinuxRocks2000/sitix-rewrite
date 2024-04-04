@@ -16,7 +16,7 @@ std::string strip(std::string thing, char trigger) { // clears all instances of 
     size_t trigCount = 0;
     size_t size = thing.size();
     for (size_t i = 0; i < size; i ++) {
-        if (thing[i] == '\\') {
+        if (thing[i] == trigger) {
             trigCount ++;
         }
     }
@@ -71,7 +71,7 @@ std::string escapeString(std::string thing, char toEscape) {
     std::string ret;// = (char*)malloc(size + escapeC + 1);
     ret.reserve(thing.size() + escapeC);
     size_t i = 0;
-    while (i < thing.size() + escapeC) {
+    while (i < thing.size()) {
         if (thing[i] == toEscape) {
             ret += '\\';
         }

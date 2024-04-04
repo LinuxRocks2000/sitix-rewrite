@@ -2,3 +2,4 @@
 [=someproperty Rhubarbtest]
 Rhubarb
 Filename is [^filename] hello
+[=filenamee "hello"]
