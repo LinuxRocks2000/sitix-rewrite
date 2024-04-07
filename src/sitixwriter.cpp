@@ -130,7 +130,24 @@ void SitixWriter::markdownWrite(const char* data, size_t length) { // this is no
                 write(&byte, 1);
             }
         }
+        else if (markdownState.parserStage == MarkdownState::Header) {
+            if (byte == '#') {
+                markdownState.hlevel ++;
+            }
+            else {
+                i --;
+                markdownState.parserStage = MarkdownState::Standard;
+                write("<h");
+                write(std::to_string(markdownState.hlevel));
+                write(">");
+            }
+        }
         else if (markdownState.parserStage == MarkdownState::LineStart) {
+            if (markdownState.hlevel > 0) {
+                write("</h");
+                write(std::to_string(markdownState.hlevel));
+                write(">");
+            }
             if (byte == '\n') { // empty line
                 if (markdownState.paragraph && markdownState.list.size() == 0) {
                     write("</p>");
@@ -145,6 +162,10 @@ void SitixWriter::markdownWrite(const char* data, size_t length) { // this is no
                     }
                     markdownState.list.pop_back();
                 }
+            }
+            else if (byte == '#') { // it's gonna be a header!
+                markdownState.hlevel = 1;
+                markdownState.parserStage = MarkdownState::Header;
             }
             else if (byte == ' ') { // spaces on an empty line aren't necessarily a list, but they're required for a list
                                     // (list items must have at least one space before the * or -)
