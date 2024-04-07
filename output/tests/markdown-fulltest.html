@@ -1,0 +1,33 @@
+<p></p><p>
+This is a full suite of stress-tests for Sitix's Sitix Markdown subsystem. <br/>
+To get good results, ensure that your Sitix implementation is reasonably up-to-date and supports Markdown.</p><p>
+Analyzing these results can be done by hand, or if you're <i>not</i> a raging masochist, by opening the
+rendered file in a browser. If the results line up with expectations, congratulations!
+<br><br></p><p>
+== FIRST TEST: Paragraphs ==</p><p>
+Paragraph One</p><p>
+Paragraph Two</p><p>
+Paragraph Three With Line Break  <br/>
+Text Following Line Break</p><p>
+Paragraph Four</p><p>
+== END FIRST TEST ==  <br/>
+Expected results (some whitespace may be different):</p><p>
+<p>Paragraph One
+</p>
+<p>Paragraph Two
+</p>
+<p>Paragraph Three With Line Break<br>Text Following Line Break
+</p>
+<p>Paragraph Four
+</p></p><p>
+== SECOND TEST: Lists ==</p><p><ul><li> main test 1</li><li> main test 2<ul><li> nested test 1<ul><li> double-nested test 1</li></ul><li> nested test 2</li></ul><li> main test 3</li></ul><ol><li> ordered list test 1</li><li> ordered list test 2<ol><li> nested ordered list test</li></ol><li> ordered list test 3<ul><li> nested unordered list test<ol><li> whack nesting test</li></ol></li></ul></li></ol>
+== END SECOND TEST ==  <br/>
+Expected results (some whitespace may be different):
+<ul><li> main test 1</li><li> main test 2<ul><li> nested test 1<ul><li> double-nested test 1</li></ul><li> nested test 2</li></ul><li> main test 3</li></ul><ol><li> ordered list test 1</li><li> ordered list test 2<ol><li> nested ordered list test</li></ol><li> ordered list test 3<ul><li> nested unordered list test<ol><li> whack nesting test</li></ol></li></ul></li></ol>
+== THIRD TEST: Text styling ==</p><p><ol><li> <i>Italic</i></li><li> <b>Bold</b></li><li> <b><i>Bold Italic</b></i></li><li> <u>Underline</u></li><li> <s>Strikethrough</s></li><li> <s><u>Underlined And Strikethroughed</u></s></li><li> <code>Code</code></li><li> <s><u><b><i>All Effects But Code</b></i></u></s></li></ol>
+== END THIRD TEST ==  <br/>
+Expected results (some whitespace may be different):
+<ol><li> <i>Italic</i></li><li> <b>Bold</b></li><li> <b><i>Bold Italic</b></i></li><li> <u>Underline</u></li><li> <s>Strikethrough</s></li><li> <s><u>Underlined And Strikethroughed</u></s></li><li> <code>Code</code></li><li> <s><u><b><i>All Effects But Code</b></i></u></s></ol></p><p>
+== FOURTH TEST: Links and images ==</p><p>
+<a href="https://swaous.asuscomm.com/sitix">Link to Sitix</a></p><p>
+<img src="https://images.pexels.com/photos/39853/woman-girl-freedom-happy-39853.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1"/>

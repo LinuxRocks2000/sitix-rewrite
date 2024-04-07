@@ -9,11 +9,33 @@ FileWriteOutput::FileWriteOutput(int fd) {
 }
 
 void FileWriteOutput::write(const char* data, size_t length) {
-    ::write(file, data, length);
+    while (length > 0) {
+        size_t writeSize = BufferSize - bufferPos; // the space remaining
+        if (writeSize > length) {
+            writeSize = length;
+        }
+        if (writeSize == 0) {
+            flush();
+        }
+        else {
+            for (size_t i = 0; i < writeSize; i ++) {
+                buffer[bufferPos + i] = data[i];
+            }
+            bufferPos += writeSize;
+            data += writeSize;
+            length -= writeSize;
+        }
+    }
+}
+
+void FileWriteOutput::flush() {
+    ::write(file, buffer, bufferPos);
+    bufferPos = 0;
 }
 
 FileWriteOutput::~FileWriteOutput() {
     if (!move) { // allow this file descriptor to be moved into another FileWriteOutput without being closed.
+        flush();
         ::close(file);
     }
 }
@@ -62,152 +84,222 @@ void SitixWriter::minifyWrite(const char* data, size_t length) { // minify is no
 
 void SitixWriter::markdownWrite(const char* data, size_t length) { // this is not a full Markdown implementation. It's best described as Sitix Markdown.
     // ** means bold, * means italic, __ means underline (<u> tag), ~~ means strikethrough, ` means code. <br> tags are inserted at newlines with at
-    // least one trailing spaces, and new paragraphs are inserted at empty lines. Unlike most markdown renderers, we actually allow you to embed markdown in HTML.
-    flags.markdown = false; // disable markdown to avoid recursion
-    if (!markdownState.paragraph) {
-        markdownState.paragraph = true;
-        write("<p>", 3);
-    }
-    size_t i = 0;
-    size_t chunk = 0;
-    while (i < length) {
-        size_t to = i;
-        if (data[i] == '*') {
-            if (i < length - 1 && data[i + 1] == '*') {
-                if (i > chunk) {
-                    write(data + chunk, to - chunk);
-                    chunk = i;
+    // least one trailing spaces, and new paragraphs are inserted at empty lines.
+    // Lists are handled with numerals (ordered list) or * (unordered list) after one or more spaces on each new line.
+    // Unlike most markdown renderers, we actually allow you to embed markdown in HTML. There's probably a really good reason why most markdown renderers
+    // avoid that, but personally I like being able to seamlessly inject html in my markdown, so I'm going to do it.
+    flags.markdown = false;
+    for (size_t i = 0; i < length; i ++) {
+        char byte = data[i];
+        if (!markdownState.paragraph) {
+            markdownState.paragraph = true;
+            write("<p>");
+        }
+        if (markdownState.parserStage == MarkdownState::Standard) {
+            if (byte == '\n') {
+                markdownState.parserStage = MarkdownState::LineStart;
+                if (markdownState.lbyte == ' ') {
+                    write("<br/>");
                 }
-                if (markdownState.bold) {
-                    write("</b>", 4);
+            }
+            else if (byte == '`') {
+                if (markdownState.code) {
+                    write("</code>");
                 }
                 else {
-                    write("<b>", 3);
+                    write("<code>");
+                }
+                markdownState.code = !markdownState.code;
+            }
+            else if (markdownState.code) { // other effects are not rendered inside code blocks (you can still apply them outside if you want)
+                write(&byte, 1);
+            }
+            else if (byte == '{') {
+                markdownState.parserStage = MarkdownState::LinkText;
+            }
+            else if (byte == '~') {
+                markdownState.parserStage = MarkdownState::Strike;
+            }
+            else if (byte == '_') {
+                markdownState.parserStage = MarkdownState::Underl;
+            }
+            else if (byte == '*') {
+                markdownState.parserStage = MarkdownState::Star;
+            }
+            else {
+                write(&byte, 1);
+            }
+        }
+        else if (markdownState.parserStage == MarkdownState::LineStart) {
+            if (byte == '\n') { // empty line
+                if (markdownState.paragraph && markdownState.list.size() == 0) {
+                    write("</p>");
+                    markdownState.paragraph = false;
+                }
+                while (markdownState.list.size() > 0) {
+                    if (markdownState.list[markdownState.list.size() - 1] == MarkdownState::ListType::Unordered) {
+                        write("</li></ul>");
+                    }
+                    else {
+                        write("</li></ol>");
+                    }
+                    markdownState.list.pop_back();
+                }
+            }
+            else if (byte == ' ') { // spaces on an empty line aren't necessarily a list, but they're required for a list
+                                    // (list items must have at least one space before the * or -)
+                markdownState.listPos = 1;
+                markdownState.parserStage = MarkdownState::ListPosGrab;
+            }
+            else {
+                while (markdownState.list.size() > 0) { // this newline is not anything special, let's unload any list tiers IF they exist
+                    if (markdownState.list[markdownState.list.size() - 1] == MarkdownState::ListType::Unordered) {
+                        write("</li></ul>");
+                    }
+                    else {
+                        write("</li></ol>");
+                    }
+                    markdownState.list.pop_back();
+                }
+                write("\n"); // this new line isn't anything special, let's just write the newline character
+                i --; // reprocess the last character
+                markdownState.parserStage = MarkdownState::Standard;
+            }
+        }
+        else if (markdownState.parserStage == MarkdownState::ListPosGrab) {
+            if (byte == ' ') {
+                markdownState.listPos ++;
+            }
+            else if (byte == '*' || byte == '-') { // it's a list item!
+                if (markdownState.listPos > markdownState.list.size()) { // it can only go up one level (TODO: automatically catch bad syntax, like using two spaces before the first list item)
+                    if (byte == '*') {
+                        markdownState.list.push_back(MarkdownState::ListType::Unordered);
+                        write("<ul>");
+                    }
+                    else {
+                        markdownState.list.push_back(MarkdownState::ListType::Ordered);
+                        write("<ol>");
+                    }
+                }
+                else if (markdownState.listPos < markdownState.list.size()) {
+                    while (markdownState.list.size() > markdownState.listPos) {
+                        if (markdownState.list[markdownState.list.size() - 1] == MarkdownState::ListType::Unordered) {
+                            write("</li></ul>");
+                        }
+                        else {
+                            write("</li></ol>");
+                        }
+                        markdownState.list.pop_back();
+                    }
+                }
+                else if (markdownState.listPos > 0 && markdownState.list.size() > 0) { // if there was at least one list item before this, let's close it
+                    write("</li>");
+                }
+                markdownState.parserStage = MarkdownState::Standard;
+                write("<li>");
+            }
+            else {
+                // false alarm, no list here!
+                // if we have list tiers loaded up, let's unload them now.
+                while (markdownState.list.size() > 0) {
+                    if (markdownState.list[markdownState.list.size() - 1] == MarkdownState::ListType::Unordered) {
+                        write("</li></ul>");
+                    }
+                    else {
+                        write("</li></ol>");
+                    }
+                    markdownState.list.pop_back();
+                }
+                write(&byte, 1);
+                markdownState.parserStage = MarkdownState::Standard;
+                markdownState.listPos = -1;
+            }
+        }
+        else if (markdownState.parserStage == MarkdownState::Star) {
+            markdownState.parserStage = MarkdownState::Standard;
+            if (byte == '*') {
+                if (markdownState.bold) {
+                    write("</b>");
+                }
+                else {
+                    write("<b>");
                 }
                 markdownState.bold = !markdownState.bold;
-                i += 2;
             }
             else {
-                if (i > chunk) {
-                    write(data + chunk, to - chunk);
-                    chunk = i;
-                }
                 if (markdownState.italic) {
-                    write("</i>", 4);
+                    write("</i>");
                 }
                 else {
-                    write("<i>", 3);
+                    write("<i>");
                 }
                 markdownState.italic = !markdownState.italic;
-                i ++;
+                i --; // re-process whatever byte we landed on, this time in Standard mode
             }
         }
-        else if (data[i] == '_' && i < length - 1 && data[i + 1] == '_') {
-            if (i > chunk) {
-                write(data + chunk, to - chunk);
-                chunk = i;
-            }
-            if (markdownState.underline) {
-                write("</u>", 4);
-            }
-            else {
-                write("<u>", 3);
-            }
-            markdownState.underline = !markdownState.underline;
-            i += 2;
-        }
-        else if (data[i] == '#' && i > 0 && data[i - 1] == 10) { // if # is the first character after a newline, we're doing some kind of header
-            markdownState.htype = 0;
-            while (data[i] == '#') {
-                markdownState.htype ++;
-                i ++;
-            }
-            write("<h" + std::to_string(markdownState.htype) + ">");
-        }
-        else if (data[i] == '~' && i < length - 1 && data[i + 1] == '~') {
-            if (i > chunk) {
-                write(data + chunk, to - chunk);
-                chunk = i;
-            }
-            if (markdownState.strikethrough) {
-                write("</s>", 4);
-            }
-            else {
-                write("<s>", 3);
-            }
-            markdownState.strikethrough = !markdownState.strikethrough;
-            i += 2;
-        }
-        else if (data[i] == '`') {
-            if (i > chunk) {
-                write(data + chunk, to - chunk);
-                chunk = i;
-            }
-            if (markdownState.code) {
-                write("</code>", 7);
-            }
-            else {
-                write("<code>", 6);
-            }
-            markdownState.code = !markdownState.code;
-            i ++;
-        }
-        else if (data[i] == '\n') {
-            if (i > chunk) {
-                write(data + chunk, to - chunk);
-                chunk = i;
-            }
-            if (markdownState.htype > 0) {
-                write("</h" + std::to_string(markdownState.htype) + ">");
-                markdownState.htype = 0;
-            }
-            if (i > 0 && data[i - 1] == ' ') {
-                write("<br>", 4);
-            }
-            else if (i > 0 && data[i - 1] == '\n') {
-                write("</p><p>", 7);
-            }
-            i ++;
-        }
-        else if (data[i] == '/') { // "/" instead of "["/"]", because "["/"]" is already taken by Sitix itself.
-            i ++;
-            size_t textStart = i;
-            while (data[i] != '/' && i < length) {
-                i ++;
-            }
-            size_t textLen = i - textStart;
-            if (data[i + 1] == '(') {
-                if (i > chunk) {
-                    write(data + chunk, to - chunk);
+        else if (markdownState.parserStage == MarkdownState::Strike) {
+            markdownState.parserStage = MarkdownState::Standard;
+            if (byte == '~') {
+                if (markdownState.strikethrough) {
+                    write("</s>");
                 }
-                i += 2;
-                size_t hrefStart = i;
-                while (data[i] != ')') {
-                    i ++;
+                else {
+                    write("<s>");
                 }
+                markdownState.strikethrough = !markdownState.strikethrough;
+            }
+            else {
+                write("~"); // it wasn't part of a strikethrough dec, render it!
+                i --; // reprocess the current byte, this time in Standard mode
+            }
+        }
+        else if (markdownState.parserStage == MarkdownState::Underl) {
+            markdownState.parserStage = MarkdownState::Standard;
+            if (byte == '_') {
+                if (markdownState.underline) {
+                    write("</u>");
+                }
+                else {
+                    write("<u>");
+                }
+                markdownState.underline = !markdownState.underline;
+            }
+            else {
+                write("_"); // it wasn't part of an underline dec, render it!
+                i --; // reprocess the current byte, this time in Standard mode
+            }
+        }
+        else if (markdownState.parserStage == MarkdownState::LinkText) {
+            if (byte == '@') {
+                markdownState.parserStage = MarkdownState::LinkHref;
+            }
+            else if (byte == '}') {
+                write("<img src=\"");
+                write(markdownState.linkTextBuffer);
+                write("\"/>");
+                markdownState.parserStage = MarkdownState::Standard;
+            }
+            else {
+                markdownState.linkTextBuffer += byte;
+            }
+        }
+        else if (markdownState.parserStage == MarkdownState::LinkHref) {
+            if (byte == '}') {
+                markdownState.parserStage = MarkdownState::Standard;
                 write("<a href=\"");
-                write(data + hrefStart, i - hrefStart);
+                write(markdownState.linkHrefBuffer);
                 write("\">");
-                write(data + textStart, textLen);
+                write(markdownState.linkTextBuffer);
                 write("</a>");
-                i ++;
-                chunk = i;
+                markdownState.linkHrefBuffer.clear();
+                markdownState.linkTextBuffer.clear();
             }
-            else { // "malformed" link, the user probably doesn't want it rendered
-                write("/", 1);
-                write(data + textStart, textLen);
+            else {
+                markdownState.linkHrefBuffer += byte;
             }
         }
-        else {
-            i ++;
-            continue;
-        }
-        if (i > chunk) {
-            write(data + chunk, to - chunk);
-            chunk = i;
-        }
+        markdownState.lbyte = byte;
     }
-    write("</p>", 4);
     flags.markdown = true; // enable markdown to permit further md writes
 }
 

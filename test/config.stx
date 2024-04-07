@@ -3,4 +3,3 @@
 [i true]
     [=baseurl "hi"]
 [/]
-[^baseurl]
