@@ -12,10 +12,11 @@ class MapView {
     size_t start; // starting position of this MapView's slice of the memory map
     size_t end; // ending position of this MapView's slice of the memory map
     int* rCount; // counts references to the underlying memory map
+    int fd; // file descriptor of the map (useful for statf)
 
-    void init(char* mm, size_t size);
+    void init(int, char* mm, size_t size);
 public:
-    MapView(char* mm, size_t size);
+    MapView(int, char* mm, size_t size);
 
     MapView(std::string filename);
 
@@ -52,4 +53,6 @@ public:
     void trim(); // tosses whitespace towards the `start`.
 
     char popFront();
+
+    bool needsReload(); // check if the file on disc has changed in a way that would require a remap.
 };

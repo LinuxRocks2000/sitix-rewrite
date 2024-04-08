@@ -10,22 +10,24 @@
 #include <cstring>
 
 
-void MapView::init(char* mm, size_t size) {
+void MapView::init(int file, char* mm, size_t size) {
     map = mm;
     length = size;
     start = 0;
     end = length;
+    fd = file;
 }
 
-MapView::MapView(char* mm, size_t size) {
+MapView::MapView(int file, char* mm, size_t size) {
     rCount = new int(1);
-    init(mm, size);
+    init(file, mm, size);
 }
 
 MapView::MapView(std::string filename) {
     rCount = new int(1);
     map = NULL;
     int file = open(filename.c_str(), O_RDONLY);
+    fd = file; // so when the destructor calls it gets closed properly
     if (file == -1) {
         printf(ERROR "Can't open %s for memory mapping!\n", filename.c_str());
         perror("\topen");
@@ -48,8 +50,7 @@ MapView::MapView(std::string filename) {
         perror("\tmmap");
         return;
     }
-    close(file);
-    init(map, sb.st_size);
+    init(file, map, sb.st_size);
 }
 
 MapView::MapView(const MapView& m) {
@@ -108,6 +109,9 @@ MapView::~MapView() {
         free(rCount);
         if (map != NULL) {
             munmap(map, length);
+        }
+        if (fd != -1) {
+            close(fd);
         }
     }
 }
@@ -175,4 +179,14 @@ void MapView::trim() { // tosses whitespace towards the `start`.
 char MapView::popFront() {
     end --;
     return map[end];
+}
+
+bool MapView::needsReload() {
+    struct stat sb;
+    if (fstat(fd, &sb) == 0) {
+        return sb.st_size != len(); // if the size has changed, the map needs to reload!
+    }
+    else {
+        return true;
+    }
 }

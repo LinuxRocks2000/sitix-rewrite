@@ -95,10 +95,12 @@ FileWriteOutput FileMan::create(std::string name) {
 }
 
 MapView FileMan::open(std::string name) {
-    if (!maps.contains(name)) {
+    if (!maps.contains(name) || maps.at(name).needsReload()) {
         MapView m(name);
         if (m.isValid()) {
-            maps.insert({ name, MapView(name) });
+            maps.erase(name); // if it exists, erase it out
+            // this prevents stupid MapView pointer stuff inside the std::map
+            maps.insert_or_assign(name, m);
         }
         else {
             return m;
