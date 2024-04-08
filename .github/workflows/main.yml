@@ -1,0 +1,23 @@
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          path: sitix-ghp-test
+      - uses: threeal/cmake-action@main
+      - name: Sitix build
+      - run: |
+             mkdir -p bin
+             mv build/sitix bin/sitix-ubuntu
+             git config --global user.name "Builder Robot"
+             git config --global user.email notan@emailaddr.ess
+             git commit -am "Automated binary builder"
+             git push
