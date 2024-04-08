@@ -19,5 +19,6 @@ jobs:
              mv build/sitix bin/sitix-ubuntu
              git config --global user.name "Builder Robot"
              git config --global user.email notan@emailaddr.ess
+             git add .
              git commit -am "Automated binary builder"
              git push
