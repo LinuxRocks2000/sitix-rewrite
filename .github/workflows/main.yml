@@ -12,6 +12,8 @@ jobs:
       - uses: actions/checkout@v2
         with:
           path: sitix-ghp-test
+      - name: Diagnostic
+        run: ls -la
       - uses: threeal/cmake-action@main
       - name: Sitix build
         run: |
