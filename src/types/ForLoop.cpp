@@ -21,9 +21,9 @@ void ForLoop::attachToParent(Object* thing) {
 }
 
 void ForLoop::render(SitixWriter* out, Object* scope, bool dereference) { // the memory management here is truly horrendous.
-    Object* array = scope -> lookup(goal);
+    Object* array = scope -> lookup(goal) -> deghost();
     if (array == NULL) {
-        array = parent -> lookup(goal);
+        array = parent -> lookup(goal) -> deghost();
     }
     if (array == NULL) {
         printf(ERROR "Array lookup for %s failed. The output will be malformed.\n", goal);
