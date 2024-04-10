@@ -21,14 +21,15 @@ void ForLoop::attachToParent(Object* thing) {
 }
 
 void ForLoop::render(SitixWriter* out, Object* scope, bool dereference) { // the memory management here is truly horrendous.
-    Object* array = scope -> lookup(goal) -> deghost();
+    Object* array = scope -> lookup(goal);
     if (array == NULL) {
-        array = parent -> lookup(goal) -> deghost();
+        array = parent -> lookup(goal);
     }
     if (array == NULL) {
         printf(ERROR "Array lookup for %s failed. The output will be malformed.\n", goal);
         return;
     }
+    array = array -> deghost();
     Object iterator(sitix);
     iterator.namingScheme = Object::NamingScheme::Named;
     iterator.name = iteratorName;
