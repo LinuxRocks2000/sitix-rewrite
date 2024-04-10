@@ -112,6 +112,10 @@ bool SitixVariableObject::equals(EvalsObject* thing) {
         if (frend == content) { // if they point to the same data, they're the same variable
             return true;
         }
+        if (thing -> toString() != toString()) { // bad solution but eh
+            return false;
+        }
+        /*
         if (frend -> children.size() != content -> children.size()) {
             return false;
         }
@@ -126,7 +130,7 @@ bool SitixVariableObject::equals(EvalsObject* thing) {
                     return false;
                 }
             }
-        }
+        }*/
         return true;
     }
     return false;
