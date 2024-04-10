@@ -56,10 +56,10 @@ FileMan::PathState FileMan::checkPath(std::string path) {
     }
 }
 
-bool FileMan::empty() { // returns whether the directory was emptied
+bool FileMan::empty(bool y = false) { // returns whether the directory was emptied
     struct stat sb;
     std::string dotsitix = ".sitix";
-    if (stat(transmuted(dotsitix).c_str(), &sb) == -1) {
+    if (!y && stat(transmuted(dotsitix).c_str(), &sb) == -1) {
         printf(WARNING "The directory %s does not appear to be managed by Sitix. This may be because this is the first build."
         "\n\tRemember that Sitix will delete all the contents of %s before rendering!"
         "\n\tAre you sure you want to \033[1mfully delete\033[0m the contents of %s and render this Sitix project to it? Y/N: ", dir.c_str(), dir.c_str(), dir.c_str());

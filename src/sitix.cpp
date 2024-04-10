@@ -241,6 +241,7 @@ int main(int argc, char** argv) {
     std::string outputDir = "output";
     std::string siteDir = "";
     std::vector<ConfigEntry> config;
+    bool y = false;
     bool hasSpecificSitedir = false;
     bool wasConf = false;
     bool watchdog = false;
@@ -256,6 +257,9 @@ int main(int argc, char** argv) {
                 argv[i],
                 "" });
             wasConf = true;
+        }
+        else if (strcmp(argv[i], "-y") == 0) {
+            y = true;
         }
         else if (strcmp(argv[i], "-w") == 0) {
             watchdog = true;
@@ -286,7 +290,7 @@ int main(int argc, char** argv) {
         }
     }
     printf(INFO "Cleaning output directory\n");
-    if (!session.output.empty()) {
+    if (!session.output.empty(y)) {
         printf("Abort.\n");
         exit(1);
     }

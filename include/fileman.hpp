@@ -32,7 +32,7 @@ public:
 
     FileMan(std::string rdir); // construct the FileMan to manage the directory referenced by rdir.
 
-    bool empty(); // empty the controlled directory and add the .sitix file (it will provide a warning prompt if .sitix doesn't exist)
+    bool empty(bool); // empty the controlled directory and add the .sitix file (it will provide a warning prompt if .sitix doesn't exist)
     // returns whether or not it the directory was emptied.
 
     FileWriteOutput create(std::string where); // create a file and all of its parent directories, and return the filewriteoutput
