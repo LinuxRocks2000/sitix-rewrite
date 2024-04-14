@@ -17,6 +17,7 @@ struct MapView; // ideally this file will be changed far less frequently than th
 struct FileWriteOutput;
 struct StringWriteOutput;
 struct SitixWriter;
+struct Node;
 class Session;
 
 

@@ -28,7 +28,6 @@
 #include <mapview.hpp>
 #include <sitixwriter.hpp>
 #include <util.hpp>
-#include <evals.hpp>
 #include <session.hpp>
 #include <sys/inotify.h>
 
@@ -41,6 +40,8 @@
 #include <types/IfStatement.hpp>
 #include <types/RedirectorStatement.hpp>
 #include <types/Dereference.hpp>
+
+#include <evals/evals.hpp>
 
 
 int fillObject(MapView& map, Object* container, FileFlags* fileflags, Session* sitix) { // designed to recurse
