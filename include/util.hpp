@@ -35,6 +35,8 @@ int iterRemove(const char* fpath, const struct stat* sb, int typeflag, struct FT
 
 void rmrf(const char* path);
 
+int coterminal(int num, int about);
+
 std::string trim2dir(std::string file); // strip off a filename from a path
 // if the path ends in /, it will not be changed
 // the output will always be formatted for quick appending: if it is not fully stripped to an empty string, the last character will be a /

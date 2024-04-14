@@ -219,3 +219,13 @@ std::string trim2dir(std::string dir) {
     }
     return dir.substr(0, i);
 }
+
+int coterminal(int num, int about) {
+    while (num >= about) {
+        num -= about;
+    }
+    while (num < 0) {
+        num += about;
+    }
+    return num;
+}
