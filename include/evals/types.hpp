@@ -1,6 +1,7 @@
 // "type" DECLARATIONS for Evals
 #pragma once
 #include <evals/core.hpp>
+#include <evals/ops.hpp>
 #include <defs.h>
 
 
@@ -75,4 +76,25 @@ struct SitixVariableObject : EvalsObject {
     bool truthyness();
 
     EvalsObject* copy();
+};
+
+
+struct EvalsFunction : EvalsObject {
+    ~EvalsFunction();
+
+    std::vector<EvalsOperation*> program;
+
+    EvalsFunction(MapView&, Object*, Object*); // construct this function from a mapview. it will consume the mapview up till either the end or a closing ")".
+
+    EvalsFunction(EvalsFunction&) = default; // copy-constructor
+
+    bool equals(EvalsObject* thing);
+
+    bool truthyness();
+
+    std::string toString();
+    
+    EvalsObject* copy();
+
+    void exec(EvalsStackType);
 };

@@ -4,6 +4,7 @@
 
 
 EvalsFunction::EvalsFunction(MapView& m, Object* parent, Object* scope) {
+    type = Type::Function;
     while (m.len() > 0) {
         m.trim();
         if (m[0] == ')') {
@@ -12,7 +13,7 @@ EvalsFunction::EvalsFunction(MapView& m, Object* parent, Object* scope) {
         }
         else if (m[0] == '(') {
             m++;
-            program.push_back(new EvalsFunction(m, parent, scope));
+            program.push_back(new StackPush(new EvalsFunction(m, parent, scope)));
         }
         else if (m[0] == '"') {
             m ++;
@@ -96,6 +97,12 @@ EvalsFunction::EvalsFunction(MapView& m, Object* parent, Object* scope) {
             else if (symbol == "trim") {
                 program.push_back(new TrimOperation());
             }
+            else if (symbol == "call") {
+                program.push_back(new CallOperation());
+            }
+            else if (symbol == "swap") {
+                program.push_back(new SwapOperation());
+            }
             else {
                 Object* o = parent -> lookup(symbol);
                 if (o == NULL) {
@@ -107,10 +114,27 @@ EvalsFunction::EvalsFunction(MapView& m, Object* parent, Object* scope) {
     }
 }
 
-void EvalsFunction::run(EvalsStackType stack) {
+bool EvalsFunction::equals(EvalsObject* other) {
+    // function comparisons would be expensive and complex and useless, so we're simply not doing them
+    return false;
+}
+
+EvalsObject* EvalsFunction::copy() {
+    return new EvalsFunction(*this);
+}
+
+void EvalsFunction::exec(EvalsStackType stack) {
     for (EvalsOperation* op : program) {
         op -> run(stack);
     }
+}
+
+bool EvalsFunction::truthyness() {
+    return true;
+}
+
+std::string EvalsFunction::toString() {
+    return "[ FUNCTION ]";
 }
 
 EvalsFunction::~EvalsFunction() {

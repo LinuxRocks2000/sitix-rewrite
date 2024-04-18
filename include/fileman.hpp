@@ -26,6 +26,8 @@ public:
 
     std::string arcTransmuted(std::string path); // strip off this directory from a path (returning something relative to this directory), if possible
 
+    void uncache(std::string path); // remove a path from the mmap cache
+
     bool valid = true; // set to false by the FileMan if there's an error
 
     std::string dir;

@@ -326,6 +326,7 @@ int main(int argc, char** argv) {
             }, [&](std::string name){
                 printf(WATCHDOG "%s was deleted\n", name.c_str());
                 remove(session.output.transmuted(session.input.arcTransmuted(name)).c_str());
+                session.input.uncache(name); // remove it from the cached mmaps
             });
         }
     }

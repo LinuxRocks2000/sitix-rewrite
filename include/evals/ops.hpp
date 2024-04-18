@@ -5,47 +5,36 @@
 #include <defs.h>
 
 
-struct EvalsFunction : EvalsOperation {
-    ~EvalsFunction();
-
-    std::vector<EvalsOperation*> program;
-
-    EvalsFunction(MapView&, Object*, Object*); // construct this function from a mapview. it will consume the mapview up till either the end or a closing ).
-
-    void run(std::vector<EvalsObject*>&);
-};
-
-
 struct StackPush : EvalsOperation {
     EvalsObject* data;
 
     StackPush(EvalsObject*);
 
-    void run(std::vector<EvalsObject*>&);
+    void run(EvalsStackType);
 };
 
 
 struct EqualityCheck : EvalsOperation {
-    void run(std::vector<EvalsObject*>&);
+    void run(EvalsStackType);
 
     void binary(EvalsStackType, EvalsObject* one, EvalsObject* two);
 };
 
 
 struct NotOperation : EvalsOperation {
-    void run(std::vector<EvalsObject*>&);
+    void run(EvalsStackType);
 };
 
 
 struct ConcatOperation : EvalsOperation {
-    void run(std::vector<EvalsObject*>&);
+    void run(EvalsStackType);
 
     void binary(EvalsStackType, EvalsObject* one, EvalsObject* two);
 };
 
 
 struct CopyOperation : EvalsOperation {
-    void run(std::vector<EvalsObject*>&);
+    void run(EvalsStackType);
 };
 
 
@@ -65,7 +54,7 @@ struct Counter : EvalsOperation {
 
     Counter(int, int);
 
-    void run(std::vector<EvalsObject*>&);
+    void run(EvalsStackType);
 
     void binary(EvalsStackType, EvalsObject* one, EvalsObject* two);
 };
@@ -81,7 +70,24 @@ struct Slicer : EvalsOperation {
 
     Slicer(Type m);
 
-    void run(std::vector<EvalsObject*>&);
+    void run(EvalsStackType);
 
     void binary(EvalsStackType, EvalsObject* one, EvalsObject* two);
+};
+
+
+struct CallOperation : EvalsOperation {
+    void run(EvalsStackType);
+};
+
+
+struct SwapOperation : EvalsOperation {
+    void run(EvalsStackType);
+
+    void binary(EvalsStackType, EvalsObject*, EvalsObject*);
+};
+
+
+struct DeleteOperation : EvalsOperation {
+    void run(EvalsStackType);
 };

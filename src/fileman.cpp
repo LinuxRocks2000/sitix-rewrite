@@ -102,9 +102,7 @@ MapView FileMan::open(std::string name) {
             // this prevents stupid MapView pointer stuff inside the std::map
             maps.insert_or_assign(name, m);
         }
-        else {
-            return m;
-        }
+        return m;
     }
     return maps.at(name);
 }
@@ -119,4 +117,8 @@ std::string FileMan::arcTransmuted(std::string path) {
     }
     std::string ret = path.substr(dir.size() + (dir[dir.size() - 1] == '/' ? 0 : 1), path.size());
     return ret;
+}
+
+void FileMan::uncache(std::string path) {
+    maps.erase(path);
 }

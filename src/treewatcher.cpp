@@ -6,9 +6,9 @@
 #include <session.hpp>
 
 
-void WatchedFile::addDep(WatchedFile* dep) {
+void WatchedPath::addDep(WatchedPath* dep) {
     bool exists = false;
-    for (WatchedFile* file : dependants) {
+    for (WatchedPath* file : dependants) {
         if (file == dep) {
             exists = true;
             break;
@@ -19,7 +19,7 @@ void WatchedFile::addDep(WatchedFile* dep) {
     }
 }
 
-void WatchedFile::rmDep(WatchedFile* dep) {
+void WatchedPath::rmDep(WatchedPath* dep) {
     for (size_t i = 0; i < dependants.size(); i ++) {
         if (dependants[i] == dep) {
             dependants[i] = dependants[dependants.size() - 1]; // swap-remove
@@ -28,9 +28,9 @@ void WatchedFile::rmDep(WatchedFile* dep) {
     }
 }
 
-void WatchedFile::treeModify(std::function<void(std::string)> onModify) {
+void WatchedPath::treeModify(std::function<void(std::string)> onModify) {
     for (size_t i = 0; i < dependants.size(); i ++) {
-        onModify(dependants[i] -> filename);
+        onModify(dependants[i] -> path);
         dependants[i] -> treeModify(onModify);
     }
 }
@@ -40,53 +40,44 @@ TreeWatcher::TreeWatcher() {
     inotifier = inotify_init();
 }
 
-WatchedFile* TreeWatcher::filewatch(std::string file) {
-    for (WatchedFile* f : files) {
-        if (f -> filename == file) {
+WatchedPath* TreeWatcher::filewatch(std::string file) {
+    for (WatchedPath* f : files) {
+        if (f -> path == file) {
             return f;
         }
     } // if it doesn't already exist, create it
-    WatchedFile* f = new WatchedFile {
-        .filename = file,
+    WatchedPath* f = new WatchedPath {
+        .path = file,
         .watcher = inotify_add_watch(inotifier, file.c_str(), IN_CLOSE_WRITE)
     };
     files.push_back(f);
     return f;
 }
 
-WatchedDir* TreeWatcher::dirwatch(std::string path) {
-    for (WatchedDir* d : directories) {
+WatchedPath* TreeWatcher::dirwatch(std::string path) { // clone of filewatch with different flags
+    // todo: make this not copy/pasted
+    for (WatchedPath* d : files) {
         if (d -> path == path) {
             return d;
         }
     } // if it doesn't already exist, create it
-    WatchedDir* d = new WatchedDir {
+    WatchedPath* d = new WatchedPath {
         .path = path,
         .watcher = inotify_add_watch(inotifier, path.c_str(), IN_CREATE | IN_DELETE | IN_MOVED_FROM | IN_MOVED_TO)
     };
-    directories.push_back(d);
+    files.push_back(d);
     return d;
 }
 
 void TreeWatcher::unwatch(std::string path) {
-    for (size_t i = 0; i < directories.size(); i ++) {
-        if (directories[i] -> path == path) {
-            WatchedDir* d = directories[i];
-            directories[i] = directories[directories.size() - 1];
-            directories.pop_back();
-            inotify_rm_watch(inotifier, d -> watcher);
-            delete d;
-            return;
-        }
-    }
     for (size_t i = 0; i < files.size(); i ++) {
-        if (files[i] -> filename == path) {
-            WatchedFile* f = files[i];
+        if (files[i] -> path == path) {
+            WatchedPath* f = files[i];
             files[i] = files[files.size() - 1];
             files.pop_back();
             inotify_rm_watch(inotifier, f -> watcher);
             delete f;
-            for (WatchedFile* alive : files) {
+            for (WatchedPath* alive : files) {
                 alive -> rmDep(f);
             }
             return;
@@ -100,16 +91,17 @@ void TreeWatcher::waitForModifications(Session* sitix, std::function<void(std::s
     struct inotify_event* evt = (struct inotify_event*)buffer;
     std::string absname;
     if (evt -> len > 0) { // it's a filename in a directory
-        for (WatchedDir* dir : directories) {
+        for (WatchedPath* dir : files) {
             if (dir -> watcher == evt -> wd) {
+                dir -> treeModify(onModify); // alert the modification tree for the parent directory of the updated file
                 absname = dir -> path + '/' + evt -> name;
             }
         }
     }
     else { // it's a regular file
-        for (WatchedFile* file : files) {
+        for (WatchedPath* file : files) {
             if (file -> watcher == evt -> wd) {
-                absname = file -> filename;
+                absname = file -> path;
             }
         }
     }
@@ -134,13 +126,9 @@ void TreeWatcher::waitForModifications(Session* sitix, std::function<void(std::s
 }
 
 TreeWatcher::~TreeWatcher() {
-    for (WatchedFile* file : files) {
+    for (WatchedPath* file : files) {
         inotify_rm_watch(inotifier, file -> watcher);
         delete file;
-    }
-    for (WatchedDir* dir : directories) {
-        inotify_rm_watch(inotifier, dir -> watcher);
-        delete dir;
     }
     close(inotifier);
 }

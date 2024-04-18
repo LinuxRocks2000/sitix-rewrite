@@ -138,9 +138,9 @@ Object* Object::lookup(std::string& lname, Object* nope) { // lookup an object b
                 std::string transmuteName = escapeString(transmuteNamep1, '.');
                 free(transmuteNamep1);
                 Object* enumerated = new Object(sitix);
-                Object* file = lookup(transmuteName); // guaranteed not to fail
+                Object* file = lookup(transmuteName);
                 if (file == NULL) {
-                    printf(ERROR "Unpacking lookup for %s in directory-to-array unpacking FAILED! The output will be malformed!\n", transmuteName);
+                    printf(ERROR "Unpacking lookup for %s in directory-to-array unpacking FAILED! The output will be malformed!\n", transmuteName.c_str());
                     continue;
                 }
                 enumerated -> setGhost(file);
@@ -159,6 +159,7 @@ Object* Object::lookup(std::string& lname, Object* nope) { // lookup an object b
             dirObject -> namingScheme = Object::NamingScheme::Named;
             dirObject -> name = root;
             addChild(dirObject);// DON'T free root, because it was passed into the dirObject
+            sitix -> watcher.dirwatch(sitix -> transmuted(root)) -> addDep(sitix -> watcher.filewatch(sitix -> transmuted(walkToFile() -> name)));
             if (rootSegLen == lname.size()) {
                 return dirObject;
             }
@@ -177,6 +178,8 @@ Object* Object::lookup(std::string& lname, Object* nope) { // lookup an object b
             fNameObj -> namingScheme = Object::NamingScheme::Named;
             fNameObj -> name = "filename";
             fNameObj -> addChild(fNameContent);
+            
+            sitix -> watcher.filewatch(sitix -> transmuted(root)) -> addDep(sitix -> watcher.filewatch(sitix -> transmuted(walkToFile() -> name)));
 
             MapView map = sitix -> open(directoryName);
             if (!map.isValid()) {
@@ -205,7 +208,6 @@ Object* Object::lookup(std::string& lname, Object* nope) { // lookup an object b
             addChild(fileObj); // since we're the global scope, we should add the file to us.
             // the goal is to create an illusion that the entire directory structure is a cohesive part of the object tree
             // and then sorta just load files when they ask us to
-            sitix -> watcher.filewatch(sitix -> transmuted(root)) -> addDep(sitix -> watcher.filewatch(sitix -> transmuted(walkToFile() -> name))); // if this line doesn't cause a segmentation fault I will eat my hat
             return fileObj;
         }
         // if we didn't find the file/directory on the top scope, let's see if it exists as a relative path

@@ -9,37 +9,30 @@
 #include <defs.h>
 
 
-struct WatchedFile {
-    std::string filename;
+struct WatchedPath { // any file or directory being watched.
+    std::string path;
     int watcher; // produced by that inotifywait_add_watch function
-    std::vector<WatchedFile*> dependants; // any WatchedFile that depends on this WatchedFile is stored here
+    std::vector<WatchedPath*> dependants; // any WatchedPath that depends on this WatchedPath is stored here
 
-    void addDep(WatchedFile* dep);
+    void addDep(WatchedPath* dep);
     
-    void rmDep(WatchedFile* dep); // if that file depends on us, remove it
+    void rmDep(WatchedPath* dep); // if that file depends on us, remove it
 
     void treeModify(std::function<void(std::string)> onModify); // run modifications up the dep tree
 };
 
 
-struct WatchedDir { // contains information on a watched directory (necessary for the IN_CREATE flag)
-    std::string path;
-    int watcher;
-};
-
-
 struct TreeWatcher {
-    std::vector<WatchedFile*> files; // every watched file in this tree
-    std::vector<WatchedDir*> directories; // every watched directory in this tree
+    std::vector<WatchedPath*> files; // every watched path in this tree
     int inotifier; // the inotify fd
 
     TreeWatcher();
 
     ~TreeWatcher();
 
-    WatchedFile* filewatch(std::string file);
+    WatchedPath* filewatch(std::string file);
 
-    WatchedDir* dirwatch(std::string path);
+    WatchedPath* dirwatch(std::string path);
 
     void unwatch(std::string path); // un-watch a file or directory
 

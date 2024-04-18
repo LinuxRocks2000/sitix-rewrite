@@ -20,7 +20,7 @@ EvalsObject* EvalsOperation::atop(EvalsStackType stack, EvalsObject::Type type, 
     return NULL;
 }
 
-void EvalsOperation::parseBinary(EvalsStackType stack, EvalsObject::Type t1, EvalsObject::Type t2) {
+void EvalsOperation::parseBinary(EvalsStackType stack, bool preserve, EvalsObject::Type t1, EvalsObject::Type t2) {
     EvalsObject* one = atop(stack, t1, 2);
     EvalsObject* two = atop(stack, t2, 1);
     if (one == NULL || two == NULL) {
@@ -31,15 +31,17 @@ void EvalsOperation::parseBinary(EvalsStackType stack, EvalsObject::Type t1, Eva
         return;
     }
     binary(stack, one, two);
-    delete one;
-    delete two;
+    if (!preserve) {
+        delete one;
+        delete two;
+    }
 }
 
 
 EvalsObject* EvalsSession::render(MapView data) { // all Evals commands produce an EvalsObject, so we can be sure that we'll be returning an EvalsObject
     std::vector<EvalsObject*> stack;
     EvalsFunction func(data, parent, scope);
-    func.run(stack);
+    func.exec(stack);
     if (stack.size() != 1) {
         printf(ERROR "Bad Evals program!\n");
         printf("\tstack size is %d, must be 1\n", stack.size());
@@ -50,7 +52,6 @@ EvalsObject* EvalsSession::render(MapView data) { // all Evals commands produce 
     }
     return stack[0];
 }
-
 
 
 EvalsBlob::EvalsBlob(Session* session, MapView d) : Node(session), data(d) {};
