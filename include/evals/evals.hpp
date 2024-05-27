@@ -13,7 +13,7 @@ struct EvalsSession {
     Object* parent;
     Object* scope;
 
-    EvalsObject* render(MapView data);
+    EvalsObject* render(MapView data, Session* sitix);
 };
 
 

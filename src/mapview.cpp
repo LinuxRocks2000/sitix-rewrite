@@ -53,6 +53,30 @@ MapView::MapView(std::string filename) {
     init(file, map, sb.st_size);
 }
 
+MapView::MapView(int file) {
+    rCount = new int(1);
+    map = NULL;
+    fd = file;
+    struct stat sb;
+    if (fstat(file, &sb)) {
+        printf(ERROR "Can't check file descriptor for memory mapping!\n");
+        perror("\tfstat");
+        return;
+    }
+    if (sb.st_size == 0) {
+        printf(WARNING "File referenced by file descriptor has 0 size and will not be memory mapped.\n");
+        return;
+    }
+    map = (char*)mmap(0, sb.st_size, PROT_READ, MAP_SHARED, file, 0);
+    if (map == MAP_FAILED) {
+        map = NULL;
+        printf(ERROR "Can't memory map from file descriptor.\n");
+        perror("\tmmap");
+        return;
+    }
+    init(file, map, sb.st_size);
+}
+
 MapView::MapView(const MapView& m) {
     *this = m;
     (*rCount) ++;

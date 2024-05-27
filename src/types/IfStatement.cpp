@@ -30,7 +30,7 @@ IfStatement::~IfStatement() {
 
 void IfStatement::render(SitixWriter* out, Object* scope, bool dereference) {
     EvalsSession session { parent, scope };
-    EvalsObject* cond = session.render(evalsCommand);
+    EvalsObject* cond = session.render(evalsCommand, sitix);
     if (cond -> truthyness()) {
         mainObject -> render(out, scope, true);
     }

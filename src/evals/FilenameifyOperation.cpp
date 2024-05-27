@@ -1,4 +1,5 @@
 #include <evals/evals.hpp>
+#ifdef INLINE_MODE_EVALS
 
 
 void FilenameifyOperation::run(EvalsStackType stack) {
@@ -26,3 +27,5 @@ void FilenameifyOperation::run(EvalsStackType stack) {
     }
     stack.push_back(new StringObject(s));
 }
+
+#endif

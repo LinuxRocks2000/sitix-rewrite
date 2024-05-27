@@ -1,4 +1,5 @@
 #include <evals/ops.hpp>
+#ifdef INLINE_MODE_EVALS
 
 
 void SwapOperation::run(EvalsStackType stack) {
@@ -10,3 +11,5 @@ void SwapOperation::binary(EvalsStackType stack, EvalsObject* one, EvalsObject* 
     stack.push_back(one); // two was the "deeper" one, so now it's being swapped with the "shallower" one
     stack.push_back(two);
 }
+
+#endif

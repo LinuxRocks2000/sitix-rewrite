@@ -1,6 +1,7 @@
 #include <evals/evals.hpp>
 #include <math.h>
 #include <types/Object.hpp>
+#ifdef INLINE_MODE_EVALS
 
 
 EvalsFunction::EvalsFunction(MapView& m, Object* parent, Object* scope) {
@@ -142,3 +143,5 @@ EvalsFunction::~EvalsFunction() {
         delete op;
     }
 }
+
+#endif

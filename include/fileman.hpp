@@ -14,6 +14,7 @@ class FileMan {
 public:
     enum PathState {
         CNEP,      // Ce n'existe pas
+        Outside,   // It exists in some form, but is not inside this FileMan's directory (should be treated as an error or CNEP)
         Directory, // it's a directory
         File,      // it's a file
         Other,     // it's something else (symlink?)

@@ -24,7 +24,7 @@ void RedirectorStatement::attachToParent(Object* p) {
 
 void RedirectorStatement::render(SitixWriter*, Object* scope, bool dereference) {
     EvalsSession session { parent, scope };
-    EvalsObject* result = session.render(evalsCommand);
+    EvalsObject* result = session.render(evalsCommand, sitix);
     FileWriteOutput file = sitix -> create(result -> toString());
     delete result;
     SitixWriter writer(file);

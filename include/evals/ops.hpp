@@ -1,9 +1,10 @@
 // operation DECLARATIONS for evals
+// safely ignored in luajit mode
 #pragma once
 #include <evals/core.hpp>
 #include <mapview.hpp>
 #include <defs.h>
-
+#ifdef INLINE_MODE_EVALS
 
 struct StackPush : EvalsOperation {
     EvalsObject* data;
@@ -91,3 +92,4 @@ struct SwapOperation : EvalsOperation {
 struct DeleteOperation : EvalsOperation {
     void run(EvalsStackType);
 };
+#endif

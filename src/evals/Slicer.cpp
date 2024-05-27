@@ -1,4 +1,5 @@
 #include <evals/evals.hpp>
+#ifdef INLINE_MODE_EVALS
 
 
 Slicer::Slicer(Type m) : mode(m) {}
@@ -23,3 +24,5 @@ void Slicer::binary(EvalsStackType stack, EvalsObject* one, EvalsObject* two) { 
         stack.push_back(new StringObject(st.substr((size_t)(num), st.size())));
     }
 }
+
+#endif

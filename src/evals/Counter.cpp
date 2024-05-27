@@ -1,5 +1,6 @@
 #include <evals/evals.hpp>
 #include <util.hpp>
+#ifdef INLINE_MODE_EVALS
 
 
 Counter::Counter(int startOffset, int tick) : off(startOffset), t(tick) {}
@@ -28,3 +29,5 @@ void Counter::binary(EvalsStackType stack, EvalsObject* o1, EvalsObject* o2) {
     }
     stack.push_back(new NumberObject(i));
 }
+
+#endif

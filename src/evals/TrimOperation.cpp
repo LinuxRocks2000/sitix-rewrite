@@ -1,5 +1,6 @@
 #include <evals/evals.hpp>
 #include <util.hpp>
+#ifdef INLINE_MODE_EVALS
 
 
 void TrimOperation::run(EvalsStackType stack) {
@@ -19,3 +20,5 @@ void TrimOperation::run(EvalsStackType stack) {
     }
     stack.push_back(new StringObject(s.substr(trimStart, trimEnd - trimStart + 1)));
 }
+
+#endif

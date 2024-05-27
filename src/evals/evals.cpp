@@ -3,8 +3,14 @@
 // It is not fancy; the syntax is redolent of Tyler++.
 #include <evals/evals.hpp>
 #include <types/PlainText.hpp>
+#ifdef INLINE_MODE_LUAJIT
+#include <luajit-2.1/lua.hpp> // TODO: fix this somehow
+#include <cstring>
+#include <session.hpp>
+#include <types/Object.hpp>
+#endif
 
-
+#ifdef INLINE_MODE_EVALS
 EvalsObject* EvalsOperation::atop(EvalsStackType stack, EvalsObject::Type type, int searchDepth) { // search down from the top of the stack for an item, and pop it out.
     // If it encounters an object where (object -> type & type), it will return that object.
     // It will not search further than searchDepth.
@@ -36,9 +42,10 @@ void EvalsOperation::parseBinary(EvalsStackType stack, bool preserve, EvalsObjec
         delete two;
     }
 }
+#endif
 
-
-EvalsObject* EvalsSession::render(MapView data) { // all Evals commands produce an EvalsObject, so we can be sure that we'll be returning an EvalsObject
+EvalsObject* EvalsSession::render(MapView data, Session* sitix) { // all Evals commands produce an EvalsObject, so we can be sure that we'll be returning an EvalsObject
+#ifdef INLINE_MODE_EVALS
     std::vector<EvalsObject*> stack;
     EvalsFunction func(data, parent, scope);
     func.exec(stack);
@@ -51,14 +58,51 @@ EvalsObject* EvalsSession::render(MapView data) { // all Evals commands produce 
         return new ErrorObject();
     }
     return stack[0];
+#endif
+
+#ifdef INLINE_MODE_LUAJIT
+    // TODO: process the lua programs in constructors (requires a rework of how EvalsSession behaves) and invoke them in render
+    // this speeds things up and allows using lua in exciting new ways (like defining sitix variables as lua functions)
+
+    // setup: loading the chunk to lua
+    std::string toLua = "return " + data.toString() + ";";
+    if (luaL_loadbuffer(sitix -> lua, toLua.c_str(), toLua.size(), "Evals blob") == LUA_ERRSYNTAX) {
+        printf(ERROR "Syntax error in a Lua embedded blob!\n");
+        // todo: actually print out the lua error
+        return new ErrorObject();
+    }
+
+    // housekeeping: loading the useful objects to scope
+    lua_pushlightuserdata(sitix -> lua, parent);
+    lua_setglobal(sitix -> lua, "_sitix_parent");
+    lua_pushlightuserdata(sitix -> lua, scope);
+    lua_setglobal(sitix -> lua, "_sitix_scope");
+
+    // calling: actually call the sitix chunk, and return the result as an Evals object
+    lua_pcall(sitix -> lua, 0, 1, 0);
+    int top = lua_gettop(sitix -> lua);
+    switch (lua_type(sitix -> lua, top)) {
+        case LUA_TNUMBER:
+            return new NumberObject(lua_tonumber(sitix -> lua, top));
+            break;
+        case LUA_TSTRING:
+            return new StringObject(std::string{lua_tostring(sitix -> lua, top)});
+            break;
+        case LUA_TBOOLEAN:
+            return new BooleanObject(lua_toboolean(sitix -> lua, top));
+            break;
+        default:
+            return new BooleanObject(false);
+            break;
+    }
+#endif
 }
 
-
-EvalsBlob::EvalsBlob(Session* session, MapView d) : Node(session), data(d) {};
+EvalsBlob::EvalsBlob(Session* session, MapView d) : Node(session), data(d) {}
 
 void EvalsBlob::render(SitixWriter* out, Object* scope, bool dereference) {
     EvalsSession session{parent, scope};
-    EvalsObject* result = session.render(data);
+    EvalsObject* result = session.render(data, sitix);
     out -> write(result -> toString());
     delete result;
 }

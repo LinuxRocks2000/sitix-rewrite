@@ -1,4 +1,5 @@
 #include <evals/evals.hpp>
+#ifdef INLINE_MODE_EVALS
 
 
 void EqualityCheck::run(EvalsStackType stack) {
@@ -15,3 +16,5 @@ void EqualityCheck::binary(EvalsStackType stack, EvalsObject* one, EvalsObject* 
     }
     stack.push_back(new BooleanObject(one -> equals(two) || two -> equals(one)));
 }
+
+#endif

@@ -18,6 +18,8 @@ class MapView {
 public:
     MapView(int, char* mm, size_t size);
 
+    MapView(int);
+
     MapView(std::string filename);
 
     bool isValid();
@@ -46,7 +48,8 @@ public:
 
     MapView operator+(size_t shift);
 
-    const char* cbuf();
+    const char* cbuf(); // get the "underlying c buffer"
+    // since this is a MapView, the c buffer will be inside a memory map
 
     MapView consume(char until, bool escapeState = false, bool doesEscape = true); // consume bytes until one of them is until (allows escaping by default)
 

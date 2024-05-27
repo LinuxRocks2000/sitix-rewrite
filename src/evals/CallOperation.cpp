@@ -1,5 +1,6 @@
 #include <evals/ops.hpp>
 #include <evals/types.hpp>
+#ifdef INLINE_MODE_EVALS
 
 
 void CallOperation::run(EvalsStackType stack) {
@@ -9,3 +10,5 @@ void CallOperation::run(EvalsStackType stack) {
     }
     func -> exec(stack);
 }
+
+#endif

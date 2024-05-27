@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <iostream>
 #include <sitixwriter.hpp>
+#include <filesystem>
 
 
 std::string fconcat(std::string one, std::string two) { // sanely glue two filenames together (useful for things like "output-dir" + "test.html")
@@ -17,6 +18,20 @@ std::string fconcat(std::string one, std::string two) { // sanely glue two filen
     else {
         return one + '/' + two;
     }
+}
+
+bool isChildOf(std::string parent, std::string path) {
+    std::string realParent = std::filesystem::absolute(parent);
+    std::string realPath = std::filesystem::absolute(path);
+    if (realPath.size() <= realParent.size()) {
+        return false; // if the path is the same length as or shorter than the parent path, it can't possibly be the child
+    }
+    for (size_t i = 0; i < realParent.size(); i ++) {
+        if (realParent[i] != realPath[i]) {
+            return false;
+        }
+    }
+    return true;
 }
 
 
@@ -37,8 +52,12 @@ FileMan::FileMan(std::string rdir) {
 
 FileMan::PathState FileMan::checkPath(std::string path) {
     struct stat sb;
-    if (stat(fconcat(dir, path).c_str(), &sb) == 0) {
-        if (S_ISDIR(sb.st_mode)) {
+    std::string conc = fconcat(dir, path);
+    if (stat(conc.c_str(), &sb) == 0) {
+        if (!isChildOf(dir, conc)) {
+            return FileMan::PathState::Outside;
+        }
+        else if (S_ISDIR(sb.st_mode)) {
             return FileMan::PathState::Directory;
         }
         else if (S_ISREG(sb.st_mode)) {

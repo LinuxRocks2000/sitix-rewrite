@@ -1,0 +1,6 @@
+[submodule "uWebSockets"]
+	path = uWebSockets
+	url = https://github.com/uNetworking/uWebSockets
+[submodule "cpp-httplib"]
+	path = cpp-httplib
+	url = https://github.com/yhirose/cpp-httplib
