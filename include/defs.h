@@ -11,8 +11,8 @@
 #define FILLOBJ_EXIT_ELSE 1
 #define FILLOBJ_EXIT_END  2
 
-//#define INLINE_MODE_EVALS // use my Evals stack-based language for all inline stuff. To switch to LuaJIT mode, comment this out, and uncomment the following line.
-#define INLINE_MODE_LUAJIT // use LuaJIT (better, but slightly harder to set up) for inline stuff
+#define INLINE_MODE_EVALS // use my Evals stack-based language for all inline stuff. To switch to LuaJIT mode, comment this out, and uncomment the following line.
+//#define INLINE_MODE_LUAJIT // use LuaJIT (better, but slightly harder to set up) for inline stuff
 
 // the legacy Evals api will be used no matter what; this simply changes the runtime that actually does the processing.
 

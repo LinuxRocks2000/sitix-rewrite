@@ -44,7 +44,6 @@
 
 #include <evals/evals.hpp>
 #include <pthread.h>
-#include <cpp-httplib/httplib.h>
 
 
 int fillObject(MapView& map, Object* container, FileFlags* fileflags, Session* sitix) { // designed to recurse
@@ -148,10 +147,6 @@ int fillObject(MapView& map, Object* container, FileFlags* fileflags, Session* s
                     else if (tagTarget.cmp("markdown")) {
                         fileflags -> markdown = true;
                     }
-                    else if (tagTarget.cmp("dynamo")) {
-                        sitix -> usesDynamo = true;
-                        fileflags -> dynamo = true;
-                    }
                 }
                 else if (tagRequest.cmp("off")) {
                     if (tagTarget.cmp("minify")) {
@@ -160,7 +155,6 @@ int fillObject(MapView& map, Object* container, FileFlags* fileflags, Session* s
                     else if (tagTarget.cmp("markdown")) {
                         fileflags -> markdown = false;
                     }
-                    // you can't turn off dynamo once you turn it on
                 }
             }
             else {
@@ -231,27 +225,16 @@ int renderFile(std::string in, Session* sitix, bool tmp = false) { // if tmp, re
             printf("\tIf this file should be rendered, replace [?] with [!] in the header.\n");
         }
         else {
-            if (fileflags.dynamo) {
-                printf(INFO "%s uses dynamo features, will not be rendered to output.\n", in.c_str());
-                if (sitix -> watchdog) {
-                    printf(WATCHDOG "%s will be rendered by Watchdog/Dynamo at the HTTP endpoint.\n", in.c_str());
-                }
-                else {
-                    printf(WARNING "Watchdog is disabled! %s will be ignored.\n", in.c_str());
+            if (tmp) {
+                tmpfd = creat("/tmp/", O_TMPFILE);
+                if (tmpfd == -1) {
+                    printf(ERROR "Can't render to temporary file.\n");
+                    perror("\tcreat");
                 }
             }
-            else {
-                if (tmp) {
-                    tmpfd = creat("/tmp/", O_TMPFILE);
-                    if (tmpfd == -1) {
-                        printf(ERROR "Can't render to temporary file.\n");
-                        perror("\tcreat");
-                    }
-                }
-                FileWriteOutput fOut = tmp ? FileWriteOutput(tmpfd) : sitix -> create(out);
-                SitixWriter stream(fOut);
-                file -> render(&stream, file, true);
-            }
+            FileWriteOutput fOut = tmp ? FileWriteOutput(tmpfd) : sitix -> create(out);
+            SitixWriter stream(fOut);
+            file -> render(&stream, file, true);
         }
         delete file;
     }
@@ -259,48 +242,6 @@ int renderFile(std::string in, Session* sitix, bool tmp = false) { // if tmp, re
         printf(ERROR "Invalid map.\n");
     }
     return tmpfd;
-}
-
-
-struct DynamoData {
-    int port;
-    Session* sitix;
-};
-
-
-void* dynamo(void* _data) {
-    const size_t MAX_CHUNK_LEN = 64 * 1024; // avoid buffering more than 64kb of response data
-    DynamoData data = *((DynamoData*)_data);
-    httplib::Server* svr = new httplib::Server;
-    svr -> set_pre_routing_handler([&](const auto& req, auto& res) {
-        std::string path = data.sitix -> transmuted(req.path);
-        auto state = data.sitix -> input.checkPath(req.path);
-        if (state == FileMan::PathState::File) { // checkPath will return something different if this isn't a child of the appropriate directory
-            data.sitix -> lock();
-            int fd = renderFile(path, data.sitix, true);
-            if (fd == -1) {
-                res.status = 500;
-                res.set_content("Bad File Descriptor", "text/plain");
-                data.sitix -> unlock();
-                return httplib::Server::HandlerResponse::Handled;
-            }
-            MapView m = data.sitix -> fopen(fd);
-            res.set_content_provider(m.len(), httplib::detail::find_content_type(path, std::map<std::string, std::string>{}, "text/plain"),
-            [&](size_t offset, size_t length, httplib::DataSink &sink) {
-                m += offset;
-                sink.write(m.cbuf(), min(length, MAX_CHUNK_LEN));
-                return true;
-            }, [](bool success){});
-            data.sitix -> unlock();
-        }
-        else {
-            res.set_content("ERROR", "text/plain");
-            res.status = httplib::StatusCode::ImATeapot_418;
-        }
-        return httplib::Server::HandlerResponse::Handled;
-    });
-    svr -> listen("0.0.0.0", data.port);
-    return NULL;
 }
 
 
@@ -318,16 +259,11 @@ int main(int argc, char** argv) {
     bool hasSpecificSitedir = false;
     bool wasConf = false;
     bool watchdog = false;
-    uint16_t dynamoPort = 3000;
     for (int i = 1; i < argc; i ++) {
         if (strcmp(argv[i], "-o") == 0) {
             i ++;
             outputDir = argv[i];
             wasConf = false;
-        }
-        else if (strcmp(argv[i], "-d") == 0) {
-            i ++;
-            dynamoPort = atoi(argv[i]);
         }
         else if (strcmp(argv[i], "-c") == 0) {
             i ++;
@@ -395,15 +331,6 @@ int main(int argc, char** argv) {
     if (watchdog) {
         printf("\033[1;33mInitial build complete!\033[0m\n");
         printf(WATCHDOG "Sitix will now idle (it will not consume CPU) until a change is made, and will then re-render the affected files.\n");
-        if (session.usesDynamo) {
-            printf(DYNAMO "Dynamo appears to be in use in this project. Starting the Dynamo server on <any address>:%d.\n\tDynamo is based on cpp-httplib by yhirose.\n\tTLS support is \033[1mdisabled\033[0m.\n", dynamoPort);
-            pthread_t dynamoThread;
-            DynamoData* args = new DynamoData;
-            args -> sitix = &session;
-            args -> port = dynamoPort;
-            pthread_create(&dynamoThread, 0, dynamo, args); // todo: create a pipe to Watchdog and pass it through the arg (which is currently NULL)
-            pthread_detach(dynamoThread);
-        }
         while (true) {
             session.watcher.waitForModifications(&session, [&](std::string name){
                 session.lock();
